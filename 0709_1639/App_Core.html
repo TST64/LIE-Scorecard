@@ -1,0 +1,308 @@
+<script>
+// Globale Anwendungsinstanz (Namespace)
+const app = 
+{
+    state: 
+    {
+        spieler: [],
+        golfplaetze: [],
+        kurse: [],
+        bahnen: [],
+        handicaps: [],
+        spieltage: [],
+        currentView: 'dashboard',
+        tempFlights: []
+    },
+
+    init: function()
+    {
+        google.script.run
+            .withSuccessHandler(app.onDataLoaded)
+            .withFailureHandler(app.onDataError)
+            .getInitialAppData();
+    },
+
+    onDataLoaded: function(response)
+    {
+        if (response.success)
+        {
+            app.state.spieler = response.spieler;
+            app.state.golfplaetze = response.golfplaetze;
+            app.state.kurse = response.kurse;
+            app.state.bahnen = response.bahnen;
+            app.state.handicaps = response.handicaps;
+            app.state.spieltage = response.spieltage;
+
+            // Blende den Plus-Button ein
+            document.getElementById('header-action-btn').classList.remove('hidden');
+
+            app.router.navigate('dashboard');
+        }
+        else
+        {
+            app.onDataError(response.error);
+        }
+    },
+
+    onDataError: function(error)
+    {
+        console.error("Fehler beim Laden der App-Daten:", error);
+        document.getElementById('app-container').innerHTML = `
+            <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
+                <i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+                <p class="font-semibold">Datenladefehler</p>
+                <p class="text-xs text-red-600 mt-1">${error}</p>
+            </div>
+        `;
+    },
+
+    router: 
+    {
+        navigate: function(viewName)
+        {
+            app.state.currentView = viewName;
+            const container = document.getElementById('app-container');
+            container.style.opacity = '0';
+
+            setTimeout(function() 
+            {
+                app.router.updateNavigationUI(viewName);
+                
+                switch (viewName)
+                {
+                    case 'dashboard':
+                        container.innerHTML = app.views.dashboard();
+                        break;
+                    case 'spieltage':
+                        container.innerHTML = app.views.spieltage();
+                        break;
+                    case 'spieler':
+                        container.innerHTML = app.views.spieler();
+                        break;
+                    case 'spieltag_neu':
+                        container.innerHTML = app.views.spieltag_neu();
+                        break;
+                    default:
+                        container.innerHTML = `<p class="text-stone-500">Ansicht nicht gefunden.</p>`;
+                }
+                
+                container.style.opacity = '1';
+            }, 200);
+        },
+
+        updateNavigationUI: function(activeView)
+        {
+            const buttons = document.querySelectorAll('nav button');
+            buttons.forEach(function(btn) 
+            {
+                btn.classList.remove('text-emerald-700', 'font-medium');
+                btn.classList.add('text-stone-400');
+            });
+
+            const indexMap = { 'dashboard': 0, 'spieltage': 1, 'spieler': 2 };
+            const activeIndex = indexMap[activeView];
+            if (activeIndex !== undefined && buttons[activeIndex])
+            {
+                buttons[activeIndex].classList.remove('text-stone-400');
+                buttons[activeIndex].classList.add('text-emerald-700', 'font-medium');
+            }
+        }
+    },
+
+    logic:
+    {
+        previewFlights: function()
+        {
+            const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
+            if (checkedBoxes.length === 0)
+            {
+                alert("Bitte wähle mindestens einen Spieler aus!");
+                return;
+            }
+
+            const spielerIds = Array.from(checkedBoxes).map(function(cb) { return parseInt(cb.value); });
+            const targetSize = parseInt(document.querySelector('input[name="flight-size"]:checked').value);
+            
+            for (let i = spielerIds.length - 1; i > 0; i--)
+            {
+                const j = Math.floor(Math.random() * (i + 1));
+                [spielerIds[i], spielerIds[j]] = [spielerIds[j], spielerIds[i]];
+            }
+
+            app.state.tempFlights = [];
+            while (spielerIds.length > 0)
+            {
+                if (spielerIds.length === 5 && targetSize === 4)
+                {
+                    app.state.tempFlights.push(spielerIds.splice(0, 3));
+                }
+                else if (spielerIds.length === 2)
+                {
+                    app.state.tempFlights.push(spielerIds.splice(0, 2));
+                }
+                else
+                {
+                    app.state.tempFlights.push(spielerIds.splice(0, targetSize));
+                }
+            }
+
+            const previewContainer = document.getElementById('flight-preview-container');
+            let flightsHtml = `<h3 class="text-xs font-bold text-stone-500 uppercase tracking-wider mt-2">Flight-Vorschau</h3>`;
+
+            app.state.tempFlights.forEach(function(flight, idx)
+            {
+                const spielerNamen = flight.map(function(id) 
+                {
+                    const s = app.state.spieler.find(function(p) { return p.id === id; });
+                    return s ? s.nickname : 'Unbekannt';
+                }).join(', ');
+
+                flightsHtml += `
+                    <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-3">
+                        <div class="w-7 h-7 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                            F${idx + 1}
+                        </div>
+                        <div class="text-sm font-semibold text-emerald-900">${spielerNamen}</div>
+                    </div>
+                `;
+            });
+
+            flightsHtml += `
+                <button onclick="app.logic.saveNewSpieltag()" id="save-spieltag-btn" class="w-full bg-stone-900 hover:bg-stone-800 text-white font-bold py-3 rounded-xl transition text-sm shadow-xs mt-2">
+                    <i class="fas fa-cloud-upload-alt mr-1"></i> Spieltag aktivieren & speichern
+                </button>
+            `;
+
+            previewContainer.innerHTML = flightsHtml;
+            previewContainer.classList.remove('hidden');
+        },
+
+        saveNewSpieltag: function()
+        {
+            const btn = document.getElementById('save-spieltag-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere im Sheet...`;
+
+            const spieltagId = "ST-" + Date.now();
+            const kursId = document.getElementById('new-spieltag-kurs').value;
+            const date = document.getElementById('new-spieltag-date').value;
+            const allTeilnehmer = app.state.tempFlights.flat();
+
+            const spieltagObj = {
+                id: spieltagId,
+                date: date,
+                kursId: kursId,
+                status: "Aktiv",
+                teilnehmerCsv: allTeilnehmer.join(',')
+            };
+
+            const flightsArray = app.state.tempFlights.map(function(flight, idx)
+            {
+                return {
+                    id: `FL-${spieltagId}-${idx+1}`,
+                    spieltagId: spieltagId,
+                    spielerIdsCsv: flight.join(',')
+                };
+            });
+
+            google.script.run
+                .withSuccessHandler(function(response)
+                {
+                    if (response.success)
+                    {
+                        app.state.spieltage.unshift(spieltagObj);
+                        app.router.navigate('spieltage');
+                    }
+                    else
+                    {
+                        alert("Fehler: " + response.error);
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Erneut versuchen`;
+                    }
+                })
+                .withFailureHandler(function(err)
+                {
+                    alert("Systemfehler beim Speichern: " + err);
+                    btn.disabled = false;
+                })
+                .createNewSpieltag(spieltagObj, flightsArray);
+        }
+    },
+
+    views: 
+    {
+        dashboard: function()
+        {
+            const aktivTag = app.state.spieltage.find(function(st) { return st.status === 'Aktiv'; });
+            let activeCardHtml = `<p class="text-stone-400 text-sm italic">Aktuell ist kein Spieltag angesetzt.</p>`;
+
+            if (aktivTag)
+            {
+                const kurs = app.state.kurse.find(function(k) { return k.id === aktivTag.kursId; });
+                const platz = kurs ? app.state.golfplaetze.find(function(p) { return p.id === kurs.platzId; }) : null;
+                
+                activeCardHtml = `
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-sm font-bold uppercase tracking-wider">Laufende Runde</span>
+                            <span class="text-xs text-stone-400 font-medium">${aktivTag.date}</span>
+                        </div>
+                        <h4 class="font-bold text-stone-800 text-base">${platz ? platz.name : 'Golfplatz'}</h4>
+                        <p class="text-xs text-stone-500 -mt-2">${kurs ? kurs.name : ''}</p>
+                        <button class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 rounded-lg transition mt-2">
+                            <i class="fas fa-flag-checkered mr-1"></i> Ergebnisse eintragen
+                        </button>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="space-y-4">
+                    <div class="bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-sm">
+                        <h2 class="text-lg font-semibold">Moin Team Loch-Ihn-Ein!</h2>
+                        <p class="text-emerald-100 text-xs mt-1">Willkommen im digitalen Clubhaus der LIE Golfrunde.</p>
+                    </div>
+                    
+                    <div class="border border-stone-200 bg-white rounded-2xl p-4 shadow-2xs">
+                        <h3 class="text-xs font-bold text-stone-400 uppercase tracking-wider mb-3">Nächster Spieltag</h3>
+                        ${activeCardHtml}
+                    </div>
+                </div>
+            `;
+        },
+
+        spieler: function()
+        {
+            let spielerListHtml = app.state.spieler.map(function(s) 
+            {
+                return `
+                    <div class="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-xl shadow-2xs">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center uppercase">
+                                ${s.nickname.substring(0, 2)}
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-stone-800">${s.name}</h4>
+                                <span class="text-xs text-stone-400 uppercase font-medium tracking-wider">${s.role}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-bold text-emerald-700">HCP: ${s.hcpLIE}</div>
+                            <div class="text-[10px] text-stone-400">DGV: ${s.hcpOfficial}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="space-y-4">
+                    <h2 class="text-lg font-bold text-stone-800">Die LIE-Gruppe</h2>
+                    <div class="space-y-2">
+                        ${spielerListHtml}
+                    </div>
+                </div>
+            `;
+        }
+    }
+};
+</script>

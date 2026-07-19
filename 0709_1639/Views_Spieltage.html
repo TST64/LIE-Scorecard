@@ -1,0 +1,111 @@
+<script>
+// Erweiterung des globalen app.views Namespaces für Spieltage
+app.views.spieltage = function()
+{
+    let spieltageHtml = `<p class="text-stone-500 text-sm italic">Noch keine Spieltage absolviert.</p>`;
+    
+    if (app.state.spieltage && app.state.spieltage.length > 0)
+    {
+        spieltageHtml = app.state.spieltage.map(function(st)
+        {
+            const kurs = app.state.kurse.find(function(k) { return k.id === st.kursId; });
+            const platz = kurs ? app.state.golfplaetze.find(function(p) { return p.id === map.platzId; }) : null;
+            const statusColor = st.status === 'Aktiv' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-stone-100 text-stone-600';
+            
+            return `
+                <div class="p-4 bg-white border border-stone-200 rounded-xl shadow-2xs space-y-2">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="text-xs font-semibold text-stone-400">${st.date}</span>
+                            <h4 class="font-bold text-stone-800">${platz ? platz.name : 'Unbekannter Platz'}</h4>
+                            <p class="text-xs text-stone-500">${kurs ? map.name : ''}</p>
+                        </div>
+                        <span class="text class="text-[10px] px-2 py-0.5 rounded-full font-bold border ${statusColor}">${st.status}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    return `
+        <div class="space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-lg font-bold text-stone-800">Gespielte Runden</h2>
+            </div>
+            <div class="space-y-3">
+                ${spieltageHtml}
+            </div>
+        </div>
+    `;
+};
+
+app.views.spieltag_neu = function()
+{
+    const kursOptionen = app.state.kurse.map(function(k)
+    {
+        const platz = app.state.golfplaetze.find(function(p) { return p.id === k.platzId; });
+        return `<option value="${k.id}">${platz ? platz.name : ''} (${k.name})</option>`;
+    }).join('');
+
+    const spielerCheckboxes = app.state.spieler.map(function(s)
+    {
+        return `
+            <label class="flex items-center justify-between p-3 bg-stone-50 border border-stone-200 rounded-xl cursor-pointer touch-target select-none">
+                <div class="flex items-center space-x-3">
+                    <input type="checkbox" name="teilnehmer" value="${s.id}" class="w-5 h-5 accent-emerald-600 rounded">
+                    <span class="font-medium text-stone-800">${s.name} (${s.nickname})</span>
+                </div>
+                <span class="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">HCP ${s.hcpLIE}</span>
+            </label>
+        `;
+    }).join('');
+
+    return `
+        <div class="space-y-4">
+            <div class="flex items-center space-x-2">
+                <button onclick="app.router.navigate('spieltage')" class="text-stone-500 touch-target"><i class="fas fa-arrow-left"></i></button>
+                <h2 class="text-lg font-bold text-stone-800">Neue Runde planen</h2>
+            </div>
+
+            <div class="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs space-y-4">
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Golfplatz / Kurs</label>
+                    <select id="new-spieltag-kurs" class="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-600 outline-none">
+                        ${kursOptionen}
+                    </select>
+                </div>
+
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Datum</label>
+                    <input type="date" id="new-spieltag-date" value="${new Date().toISOString().split('T')[0]}" class="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-600 outline-none">
+                </div>
+
+                <div class="flex flex-col space-y-2">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Wer spielt mit?</label>
+                    <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                        ${spielerCheckboxes}
+                    </div>
+                </div>
+
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Flight-Größe</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center justify-center p-2.5 bg-stone-50 border border-stone-200 rounded-xl cursor-pointer">
+                            <input type="radio" name="flight-size" value="4" checked class="mr-2 accent-emerald-600"> 4er Flights
+                        </label>
+                        <label class="flex items-center justify-center p-2.5 bg-stone-50 border border-stone-200 rounded-xl cursor-pointer">
+                            <input type="radio" name="flight-size" value="3" class="mr-2 accent-emerald-600"> 3er Flights
+                        </label>
+                    </div>
+                </div>
+
+                <button onclick="app.logic.previewFlights()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition text-sm shadow-xs mt-2">
+                    <i class="fas fa-dice mr-1"></i> Flights zulosen & Vorschau
+                </button>
+            </div>
+
+            <div id="flight-preview-container" class="hidden space-y-3"></div>
+        </div>
+    `;
+};
+</script>

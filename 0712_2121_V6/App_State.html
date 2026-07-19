@@ -1,0 +1,24 @@
+<script>
+
+// =========================================================================
+// GLOBALER ANWENDUNGS-STATE (Der Speicher im Browser-Client)
+// =========================================================================
+window.app = window.app || {};
+
+app.state = {
+    currentView: 'login',
+    currentUser: null,
+    leaderboardViewMode: 'matrix', // Standardmäßig Augusta-Matrix
+    spieler: [],
+    golfplaetze: [],
+    kurse: [],
+    bahnen: [],
+    handicaps: [],
+    spieltage: [],
+    scoreCards: [],
+    flights: [],
+    liveScores: {} // Temp-Speicher für noch nicht gesicherte Scores im aktuellen Flight
+};
+
+
+</script>

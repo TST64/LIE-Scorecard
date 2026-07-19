@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>LIE Scorecard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <?!= include('Style'); ?>
+</head>
+<body class="bg-stone-100 text-stone-900 font-sans antialiased">
+
+    <div class="max-w-md mx-auto min-h-screen bg-white shadow-xl flex flex-col relative pb-20">
+        
+        <header class="bg-emerald-700 text-white px-4 py-3 sticky top-0 z-40 shadow-md flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wide">LIE Scorecard</h1>
+            <div class="flex items-center space-x-3">
+                <button id="header-action-btn" onclick="app.router.navigate('spieltag_neu')" class="hidden text-white p-1 touch-target text-lg">
+                    <i class="fas fa-plus-circle"></i>
+                </button>
+                <div id="connection-status" class="w-3 h-3 rounded-full bg-emerald-400"></div>
+            </div>
+        </header>
+
+        <main id="app-container" class="flex-1 p-4">
+            <div id="app-loading" class="flex flex-col items-center justify-center pt-20">
+                <i class="fas fa-circle-notch fa-spin text-3xl text-emerald-600 mb-2"></i>
+                <p class="text-stone-500 text-sm">Lade Spieldaten...</p>
+            </div>
+        </main>
+
+        <nav class="absolute bottom-0 left-0 right-0 bg-white border-t border-stone-200 h-16 flex justify-around items-center z-40">
+            <button onclick="app.router.navigate('dashboard')" class="nav-btn flex flex-col items-center justify-center w-full h-full text-emerald-700 font-medium text-xs">
+                <i class="fas fa-home text-lg mb-0.5"></i>
+                <span>Home</span>
+            </button>
+            <button onclick="app.router.navigate('spieltage')" class="nav-btn flex flex-col items-center justify-center w-full h-full text-stone-400 text-xs">
+                <i class="fas fa-calendar-alt text-lg mb-0.5"></i>
+                <span>Runden</span>
+            </button>
+            <button onclick="app.router.navigate('spieler')" class="nav-btn flex flex-col items-center justify-center w-full h-full text-stone-400 text-xs">
+                <i class="fas fa-users text-lg mb-0.5"></i>
+                <span>Gruppe</span>
+            </button>
+        </nav>
+
+    </div>
+
+    <?!= include('App_Core'); ?>
+    <?!= include('Views_Spieltage'); ?>
+    <?!= include('App_Start'); ?>
+</body>
+</html>

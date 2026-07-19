@@ -1,0 +1,640 @@
+##### <App_Core.html>:
+----------------------------------------------------------------------
+<script>
+// Globale Anwendungsinstanz (Namespace)
+const app = 
+{
+    state: 
+    {
+        spieler: [],
+        golfplaetze: [],
+        kurse: [],
+        bahnen: [],
+        handicaps: [],
+        spieltage: [],
+        currentView: 'dashboard',
+        tempFlights: []
+    },
+
+    init: function()
+    {
+        google.script.run
+            .withSuccessHandler(app.onDataLoaded)
+            .withFailureHandler(app.onDataError)
+            .getInitialAppData();
+    },
+
+    onDataLoaded: function(response)
+    {
+        if (response.success)
+        {
+            app.state.spieler = response.spieler;
+            app.state.golfplaetze = response.golfplaetze;
+            app.state.kurse = response.kurse;
+            app.state.bahnen = response.bahnen;
+            app.state.handicaps = response.handicaps;
+            app.state.spieltage = response.spieltage;
+
+            // Blende den Plus-Button ein
+            document.getElementById('header-action-btn').classList.remove('hidden');
+
+            app.router.navigate('dashboard');
+        }
+        else
+        {
+            app.onDataError(response.error);
+        }
+    },
+
+    onDataError: function(error)
+    {
+        console.error("Fehler beim Laden der App-Daten:", error);
+        document.getElementById('app-container').innerHTML = `
+            <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
+                <i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+                <p class="font-semibold">Datenladefehler</p>
+                <p class="text-xs text-red-600 mt-1">${error}</p>
+            </div>
+        `;
+    },
+
+    router: 
+    {
+        navigate: function(viewName)
+        {
+            app.state.currentView = viewName;
+            const container = document.getElementById('app-container');
+            container.style.opacity = '0';
+
+            setTimeout(function() 
+            {
+                app.router.updateNavigationUI(viewName);
+                
+                switch (viewName)
+                {
+                    case 'dashboard':
+                        container.innerHTML = app.views.dashboard();
+                        break;
+                    case 'spieltage':
+                        container.innerHTML = app.views.spieltage();
+                        break;
+                    case 'spieler':
+                        container.innerHTML = app.views.spieler();
+                        break;
+                    case 'spieltag_neu':
+                        container.innerHTML = app.views.spieltag_neu();
+                        break;
+                    default:
+                        container.innerHTML = `<p class="text-stone-500">Ansicht nicht gefunden.</p>`;
+                }
+                
+                container.style.opacity = '1';
+            }, 200);
+        },
+
+        updateNavigationUI: function(activeView)
+        {
+            const buttons = document.querySelectorAll('nav button');
+            buttons.forEach(function(btn) 
+            {
+                btn.classList.remove('text-emerald-700', 'font-medium');
+                btn.classList.add('text-stone-400');
+            });
+
+            const indexMap = { 'dashboard': 0, 'spieltage': 1, 'spieler': 2 };
+            const activeIndex = indexMap[activeView];
+            if (activeIndex !== undefined && buttons[activeIndex])
+            {
+                buttons[activeIndex].classList.remove('text-stone-400');
+                buttons[activeIndex].classList.add('text-emerald-700', 'font-medium');
+            }
+        }
+    },
+
+    logic:
+    {
+        previewFlights: function()
+        {
+            const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
+            if (checkedBoxes.length === 0)
+            {
+                alert("Bitte wähle mindestens einen Spieler aus!");
+                return;
+            }
+
+            const spielerIds = Array.from(checkedBoxes).map(function(cb) { return parseInt(cb.value); });
+            const targetSize = parseInt(document.querySelector('input[name="flight-size"]:checked').value);
+            
+            for (let i = spielerIds.length - 1; i > 0; i--)
+            {
+                const j = Math.floor(Math.random() * (i + 1));
+                [spielerIds[i], spielerIds[j]] = [spielerIds[j], spielerIds[i]];
+            }
+
+            app.state.tempFlights = [];
+            while (spielerIds.length > 0)
+            {
+                if (spielerIds.length === 5 && targetSize === 4)
+                {
+                    app.state.tempFlights.push(spielerIds.splice(0, 3));
+                }
+                else if (spielerIds.length === 2)
+                {
+                    app.state.tempFlights.push(spielerIds.splice(0, 2));
+                }
+                else
+                {
+                    app.state.tempFlights.push(spielerIds.splice(0, targetSize));
+                }
+            }
+
+            const previewContainer = document.getElementById('flight-preview-container');
+            let flightsHtml = `<h3 class="text-xs font-bold text-stone-500 uppercase tracking-wider mt-2">Flight-Vorschau</h3>`;
+
+            app.state.tempFlights.forEach(function(flight, idx)
+            {
+                const spielerNamen = flight.map(function(id) 
+                {
+                    const s = app.state.spieler.find(function(p) { return p.id === id; });
+                    return s ? s.nickname : 'Unbekannt';
+                }).join(', ');
+
+                flightsHtml += `
+                    <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-3">
+                        <div class="w-7 h-7 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                            F${idx + 1}
+                        </div>
+                        <div class="text-sm font-semibold text-emerald-900">${spielerNamen}</div>
+                    </div>
+                `;
+            });
+
+            flightsHtml += `
+                <button onclick="app.logic.saveNewSpieltag()" id="save-spieltag-btn" class="w-full bg-stone-900 hover:bg-stone-800 text-white font-bold py-3 rounded-xl transition text-sm shadow-xs mt-2">
+                    <i class="fas fa-cloud-upload-alt mr-1"></i> Spieltag aktivieren & speichern
+                </button>
+            `;
+
+            previewContainer.innerHTML = flightsHtml;
+            previewContainer.classList.remove('hidden');
+        },
+
+        saveNewSpieltag: function()
+        {
+            const btn = document.getElementById('save-spieltag-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere im Sheet...`;
+
+            const spieltagId = "ST-" + Date.now();
+            const kursId = document.getElementById('new-spieltag-kurs').value;
+            const date = document.getElementById('new-spieltag-date').value;
+            const allTeilnehmer = app.state.tempFlights.flat();
+
+            const spieltagObj = {
+                id: spieltagId,
+                date: date,
+                kursId: kursId,
+                status: "Aktiv",
+                teilnehmerCsv: allTeilnehmer.join(',')
+            };
+
+            const flightsArray = app.state.tempFlights.map(function(flight, idx)
+            {
+                return {
+                    id: `FL-${spieltagId}-${idx+1}`,
+                    spieltagId: spieltagId,
+                    spielerIdsCsv: flight.join(',')
+                };
+            });
+
+            google.script.run
+                .withSuccessHandler(function(response)
+                {
+                    if (response.success)
+                    {
+                        app.state.spieltage.unshift(spieltagObj);
+                        app.router.navigate('spieltage');
+                    }
+                    else
+                    {
+                        alert("Fehler: " + response.error);
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Erneut versuchen`;
+                    }
+                })
+                .withFailureHandler(function(err)
+                {
+                    alert("Systemfehler beim Speichern: " + err);
+                    btn.disabled = false;
+                })
+                .createNewSpieltag(spieltagObj, flightsArray);
+        }
+    },
+
+    views: 
+    {
+        dashboard: function()
+        {
+            const aktivTag = app.state.spieltage.find(function(st) { return st.status === 'Aktiv'; });
+            let activeCardHtml = `<p class="text-stone-400 text-sm italic">Aktuell ist kein Spieltag angesetzt.</p>`;
+
+            if (aktivTag)
+            {
+                const kurs = app.state.kurse.find(function(k) { return k.id === aktivTag.kursId; });
+                const platz = kurs ? app.state.golfplaetze.find(function(p) { return p.id === kurs.platzId; }) : null;
+                
+                activeCardHtml = `
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-sm font-bold uppercase tracking-wider">Laufende Runde</span>
+                            <span class="text-xs text-stone-400 font-medium">${aktivTag.date}</span>
+                        </div>
+                        <h4 class="font-bold text-stone-800 text-base">${platz ? platz.name : 'Golfplatz'}</h4>
+                        <p class="text-xs text-stone-500 -mt-2">${kurs ? kurs.name : ''}</p>
+                        <button class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 rounded-lg transition mt-2">
+                            <i class="fas fa-flag-checkered mr-1"></i> Ergebnisse eintragen
+                        </button>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="space-y-4">
+                    <div class="bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-sm">
+                        <h2 class="text-lg font-semibold">Moin Team Loch-Ihn-Ein!</h2>
+                        <p class="text-emerald-100 text-xs mt-1">Willkommen im digitalen Clubhaus der LIE Golfrunde.</p>
+                    </div>
+                    
+                    <div class="border border-stone-200 bg-white rounded-2xl p-4 shadow-2xs">
+                        <h3 class="text-xs font-bold text-stone-400 uppercase tracking-wider mb-3">Nächster Spieltag</h3>
+                        ${activeCardHtml}
+                    </div>
+                </div>
+            `;
+        },
+
+        spieler: function()
+        {
+            let spielerListHtml = app.state.spieler.map(function(s) 
+            {
+                return `
+                    <div class="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-xl shadow-2xs">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center uppercase">
+                                ${s.nickname.substring(0, 2)}
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-stone-800">${s.name}</h4>
+                                <span class="text-xs text-stone-400 uppercase font-medium tracking-wider">${s.role}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-bold text-emerald-700">HCP: ${s.hcpLIE}</div>
+                            <div class="text-[10px] text-stone-400">DGV: ${s.hcpOfficial}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="space-y-4">
+                    <h2 class="text-lg font-bold text-stone-800">Die LIE-Gruppe</h2>
+                    <div class="space-y-2">
+                        ${spielerListHtml}
+                    </div>
+                </div>
+            `;
+        }
+    }
+};
+</script>
+
+
+##### <App_Start.html>:
+----------------------------------------------------------------------
+<script>
+document.addEventListener('DOMContentLoaded', function() 
+{
+    app.init();
+});
+</script>
+
+
+##### <Code.js>:
+----------------------------------------------------------------------
+function doGet(e)
+{
+    return HtmlService.createTemplateFromFile('Index')
+        .evaluate()
+        .setTitle('LIE Scorecard')
+        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function include(filename)
+{
+    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+function getInitialAppData()
+{
+    try
+    {
+        const ssAdmin = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/1PmAhXwOJVVUAMvCNWCaNhmnoUeMM_xiK74mPXh8wi1g/");
+        const ssRef = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/1vcGyKusm8joOn3Zsp6dgqckH74njN6ydJohK2KB60w0/");
+        const ssApp = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/1I4ZcnxSGe1Zpr_08SaKa__OMKzLzSrraPgEo4bbmisQ/");
+
+        return {
+            success: true,
+            spieler: getSheetDataAsJson(ssAdmin.getSheetByName("adm_Spieler")),
+            golfplaetze: getSheetDataAsJson(ssRef.getSheetByName("ref_Golfplätze")),
+            kurse: getSheetDataAsJson(ssRef.getSheetByName("ref_GolfplatzKurse")),
+            bahnen: getSheetDataAsJson(ssRef.getSheetByName("ref_KursBahnen")),
+            handicaps: getSheetDataAsJson(ssRef.getSheetByName("ref_KursHandicap")),
+            spieltage: getSheetDataAsJson(ssApp.getSheetByName("app_Spieltage"))
+        };
+    }
+    catch (err)
+    {
+        return {
+            success: false,
+            error: err.toString()
+        };
+    }
+}
+
+/**
+ * Speichert einen neu erstellten Spieltag samt automatisch generierter Flights
+ */
+function createNewSpieltag(spieltagObj, flightsArray)
+{
+    try
+    {
+        const ssApp = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/1I4ZcnxSGe1Zpr_08SaKa__OMKzLzSrraPgEo4bbmisQ/");
+        
+        // 1. Spieltag in app_Spieltage eintragen
+        const tSpieltage = ssApp.getSheetByName("app_Spieltage");
+        tSpieltage.appendRow([
+            spieltagObj.id,
+            spieltagObj.date,
+            spieltagObj.kursId,
+            spieltagObj.status,
+            spieltagObj.teilnehmerCsv,
+            spieltagObj.bruttoSieger || "",
+            spieltagObj.nettoSieger || ""
+        ]);
+
+        // 2. Flights in app_Flights eintragen
+        const tFlights = ssApp.getSheetByName("app_Flights");
+        flightsArray.forEach(function(f)
+        {
+            tFlights.appendRow([
+                f.id,
+                f.spieltagId,
+                f.spielerIdsCsv
+            ]);
+        });
+
+        return {
+            success: true
+        };
+    }
+    catch (err)
+    {
+        return {
+            success: false,
+            error: err.toString()
+        };
+    }
+}
+
+
+##### <Index.html>:
+----------------------------------------------------------------------
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>LIE Scorecard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <?!= include('Style'); ?>
+</head>
+<body class="bg-stone-100 text-stone-900 font-sans antialiased">
+
+    <div class="max-w-md mx-auto min-h-screen bg-white shadow-xl flex flex-col relative pb-20">
+        
+        <header class="bg-emerald-700 text-white px-4 py-3 sticky top-0 z-40 shadow-md flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wide">LIE Scorecard</h1>
+            <div class="flex items-center space-x-3">
+                <button id="header-action-btn" onclick="app.router.navigate('spieltag_neu')" class="hidden text-white p-1 touch-target text-lg">
+                    <i class="fas fa-plus-circle"></i>
+                </button>
+                <div id="connection-status" class="w-3 h-3 rounded-full bg-emerald-400"></div>
+            </div>
+        </header>
+
+        <main id="app-container" class="flex-1 p-4">
+            <div id="app-loading" class="flex flex-col items-center justify-center pt-20">
+                <i class="fas fa-circle-notch fa-spin text-3xl text-emerald-600 mb-2"></i>
+                <p class="text-stone-500 text-sm">Lade Spieldaten...</p>
+            </div>
+        </main>
+
+        <nav class="absolute bottom-0 left-0 right-0 bg-white border-t border-stone-200 h-16 flex justify-around items-center z-40">
+            <button onclick="app.router.navigate('dashboard')" class="nav-btn flex flex-col items-center justify-center w-full h-full text-emerald-700 font-medium text-xs">
+                <i class="fas fa-home text-lg mb-0.5"></i>
+                <span>Home</span>
+            </button>
+            <button onclick="app.router.navigate('spieltage')" class="nav-btn flex flex-col items-center justify-center w-full h-full text-stone-400 text-xs">
+                <i class="fas fa-calendar-alt text-lg mb-0.5"></i>
+                <span>Runden</span>
+            </button>
+            <button onclick="app.router.navigate('spieler')" class="nav-btn flex flex-col items-center justify-center w-full h-full text-stone-400 text-xs">
+                <i class="fas fa-users text-lg mb-0.5"></i>
+                <span>Gruppe</span>
+            </button>
+        </nav>
+
+    </div>
+
+    <?!= include('App_Core'); ?>
+    <?!= include('Views_Spieltage'); ?>
+    <?!= include('App_Start'); ?>
+</body>
+</html>
+
+
+##### <Style.html>:
+----------------------------------------------------------------------
+<style>
+/* Individuelle UI/UX-Optimierungen über Tailwind hinaus */
+
+/* Deaktiviert die unschöne graue Fläche beim Tippen auf Mobilgeräten */
+button, a, .nav-btn 
+{
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+}
+
+/* Weiche Übergänge für View-Wechsel */
+#app-container 
+{
+    transition: opacity 0.2s ease-in-out;
+}
+
+/* One-Hand Safe Input States */
+.touch-target 
+{
+    min-height: 44px;
+    min-width: 44px;
+}
+</style>
+
+
+##### <Utils.js>:
+----------------------------------------------------------------------
+function getSheetDataAsJson(sheet)
+{
+    if (!sheet)
+    {
+        return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1)
+    {
+        return [];
+    }
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    return rows.map(function(row) 
+    {
+        const obj = {};
+        headers.forEach(function(header, index) 
+        {
+            obj[header] = row[index];
+        });
+        return obj;
+    });
+}
+
+
+##### <Views_Spieltage.html>:
+----------------------------------------------------------------------
+<script>
+// Erweiterung des globalen app.views Namespaces für Spieltage
+app.views.spieltage = function()
+{
+    let spieltageHtml = `<p class="text-stone-500 text-sm italic">Noch keine Spieltage absolviert.</p>`;
+    
+    if (app.state.spieltage && app.state.spieltage.length > 0)
+    {
+        spieltageHtml = app.state.spieltage.map(function(st)
+        {
+            const kurs = app.state.kurse.find(function(k) { return k.id === st.kursId; });
+            const platz = kurs ? app.state.golfplaetze.find(function(p) { return p.id === map.platzId; }) : null;
+            const statusColor = st.status === 'Aktiv' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-stone-100 text-stone-600';
+            
+            return `
+                <div class="p-4 bg-white border border-stone-200 rounded-xl shadow-2xs space-y-2">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="text-xs font-semibold text-stone-400">${st.date}</span>
+                            <h4 class="font-bold text-stone-800">${platz ? platz.name : 'Unbekannter Platz'}</h4>
+                            <p class="text-xs text-stone-500">${kurs ? map.name : ''}</p>
+                        </div>
+                        <span class="text class="text-[10px] px-2 py-0.5 rounded-full font-bold border ${statusColor}">${st.status}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    return `
+        <div class="space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-lg font-bold text-stone-800">Gespielte Runden</h2>
+            </div>
+            <div class="space-y-3">
+                ${spieltageHtml}
+            </div>
+        </div>
+    `;
+};
+
+app.views.spieltag_neu = function()
+{
+    const kursOptionen = app.state.kurse.map(function(k)
+    {
+        const platz = app.state.golfplaetze.find(function(p) { return p.id === k.platzId; });
+        return `<option value="${k.id}">${platz ? platz.name : ''} (${k.name})</option>`;
+    }).join('');
+
+    const spielerCheckboxes = app.state.spieler.map(function(s)
+    {
+        return `
+            <label class="flex items-center justify-between p-3 bg-stone-50 border border-stone-200 rounded-xl cursor-pointer touch-target select-none">
+                <div class="flex items-center space-x-3">
+                    <input type="checkbox" name="teilnehmer" value="${s.id}" class="w-5 h-5 accent-emerald-600 rounded">
+                    <span class="font-medium text-stone-800">${s.name} (${s.nickname})</span>
+                </div>
+                <span class="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">HCP ${s.hcpLIE}</span>
+            </label>
+        `;
+    }).join('');
+
+    return `
+        <div class="space-y-4">
+            <div class="flex items-center space-x-2">
+                <button onclick="app.router.navigate('spieltage')" class="text-stone-500 touch-target"><i class="fas fa-arrow-left"></i></button>
+                <h2 class="text-lg font-bold text-stone-800">Neue Runde planen</h2>
+            </div>
+
+            <div class="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs space-y-4">
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Golfplatz / Kurs</label>
+                    <select id="new-spieltag-kurs" class="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-600 outline-none">
+                        ${kursOptionen}
+                    </select>
+                </div>
+
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Datum</label>
+                    <input type="date" id="new-spieltag-date" value="${new Date().toISOString().split('T')[0]}" class="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:border-emerald-600 outline-none">
+                </div>
+
+                <div class="flex flex-col space-y-2">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Wer spielt mit?</label>
+                    <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                        ${spielerCheckboxes}
+                    </div>
+                </div>
+
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Flight-Größe</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center justify-center p-2.5 bg-stone-50 border border-stone-200 rounded-xl cursor-pointer">
+                            <input type="radio" name="flight-size" value="4" checked class="mr-2 accent-emerald-600"> 4er Flights
+                        </label>
+                        <label class="flex items-center justify-center p-2.5 bg-stone-50 border border-stone-200 rounded-xl cursor-pointer">
+                            <input type="radio" name="flight-size" value="3" class="mr-2 accent-emerald-600"> 3er Flights
+                        </label>
+                    </div>
+                </div>
+
+                <button onclick="app.logic.previewFlights()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition text-sm shadow-xs mt-2">
+                    <i class="fas fa-dice mr-1"></i> Flights zulosen & Vorschau
+                </button>
+            </div>
+
+            <div id="flight-preview-container" class="hidden space-y-3"></div>
+        </div>
+    `;
+};
+</script>
+
+

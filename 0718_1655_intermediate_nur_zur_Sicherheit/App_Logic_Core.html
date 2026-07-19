@@ -1,0 +1,1286 @@
+<script>
+// =========================================================================
+// BMAssistent / LIE Scorecard - Anwendungslogik
+// App_Logic_Core.html
+// BSD (Allman) Style
+// =========================================================================
+
+app.logic = 
+{
+    // Ermittelt die anteilige Spielvorgabe pro Loch basierend auf dem Stammblatt
+    calculateHoleVorgabe: function(spieler, kursId, holeSi)
+    {
+        const hcp = parseFloat(spieler.hcpLIE) || 54.0;
+        const hcpsForKurs = app.state.handicaps.filter(function(h) { return String(h.kursId).trim() === String(kursId).trim(); });
+        
+        let vorgabeMatch = hcpsForKurs.find(function(h) { return parseFloat(h.vorgabe) === hcp; });
+        let spielvorgabeTotal = vorgabeMatch ? parseInt(vorgabeMatch.spielvorgabe) : Math.round(hcp);
+
+        // Verteilung der Vorgabenschläge auf die Schwierigkeit (Spielvorgabe / 18)
+        let basisSchlaege = Math.floor(spielvorgabeTotal / 18);
+        let restSchlaege = spielvorgabeTotal % 18;
+        
+        let holeVorgabe = basisSchlaege;
+        if (parseInt(holeSi) <= restSchlaege)
+        {
+            holeVorgabe += 1;
+        }
+        return holeVorgabe;
+    },
+
+    // Stableford-Netto-Punkteergebnis berechnen
+    calculateNettoStableford: function(strokes, par, holeVorgabe)
+    {
+        if (!strokes || strokes <= 0) 
+        {
+            return 0;
+        }
+        
+        // Persönliches Par für dieses Loch ermitteln
+        let persoenlichesPar = parseInt(par) + parseInt(holeVorgabe);
+        let differenz = persoenlichesPar - parseInt(strokes);
+        
+        let punkte = 2 + differenz;
+        return punkte < 0 ? 0 : punkte;
+    },
+
+    // Lokales Anpassen der Schläge im Zwischenspeicher
+    adjustScore: function(spieltagId, spielerId, holeNr, delta, par, spielvorgabe)
+    {
+        const key = `${spieltagId}_${spielerId}_${holeNr}`;
+        
+        const dbScores = app.state.scoreCards.filter(function(sc) { return String(sc.spieltagId) === String(spieltagId) && String(sc.spielerId) === String(spielerId); });
+        const dbMatch = dbScores.find(function(sc) { return sc.hole !== undefined && parseInt(sc.hole) === holeNr; });
+        const hatDbScore = dbMatch ? parseInt(dbMatch.strokes) : undefined;
+
+        let aktuellerScore = app.state.liveScores[key] || hatDbScore || parseInt(par);
+        let neuerScore = aktuellerScore + delta;
+        if (neuerScore < 1) 
+        {
+            neuerScore = 1;
+        }
+
+        app.state.liveScores[key] = neuerScore;
+
+        // UI-Wert updaten
+        const scoreEl = document.getElementById(`score-val-${spielerId}`);
+        if (scoreEl) 
+        {
+            scoreEl.innerText = neuerScore;
+        }
+
+        // Netto-Punkte direkt neu berechnen und Badge aktualisieren
+        const nettoPkt = app.logic.calculateNettoStableford(neuerScore, par, spielvorgabe);
+        const badgeEl = document.getElementById(`netto-badge-${spielerId}`);
+        if (badgeEl) 
+        {
+            badgeEl.innerText = `${nettoPkt} Netto-Pkt`;
+        }
+    },
+
+    // Schiebt alle ungesicherten lokalen Scores hoch in das Sheet app_ScoreCards
+    syncScoresWithServer: function(spieltagId, flightSeq)
+    {
+        const keysToSync = Object.keys(app.state.liveScores).filter(function(k) { return k.startsWith(spieltagId + "_"); });
+        
+        if (keysToSync.length === 0)
+        {
+            alert("Keine neuen Änderungen zum Synchronisieren vorhanden.");
+            return;
+        }
+
+        const syncBtn = document.getElementById('sync-btn');
+        if (syncBtn)
+        {
+            syncBtn.disabled = true;
+            syncBtn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Lädt...`;
+        }
+
+        const scoresPayload = keysToSync.map(function(key)
+        {
+            const parts = key.split('_'); // spieltagId, spielerId, hole
+            const spielerId = parts[1];
+            const holeNr = parseInt(parts[2]);
+            const strokes = app.state.liveScores[key];
+            
+            const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === spielerId; });
+            const spieltag = app.state.spieltage.find(function(st) { return String(st.id).trim() === String(spieltagId).trim(); });
+            const kursBahnen = app.state.bahnen.filter(function(b) { return String(b.kursId) === String(spieltag.kursId); });
+            const bahn = kursBahnen.find(function(b) { return parseInt(b.nr) === holeNr; }) || { si: 10 };
+
+            // KORREKTUR: calculateHoleVorgabe fängt das Verteilungsprinzip auf 18 Löcher bereits ab
+            let strokesGiven = app.logic.calculateHoleVorgabe(spieler, spieltag.kursId, bahn.si);
+
+            return {
+                id: `SC-${spieltagId}-${spielerId}-${holeNr}`,
+                spieltagId: spieltagId,
+                flightSeq: parseInt(flightSeq) || 1,
+                spielerId: spielerId,
+                hole: holeNr,
+                strokes: strokes,
+                strokesGiven: strokesGiven
+            };
+        });
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    // Nach erfolgreichem Upload die lokalen Live-Scores in den Haupt-State mergen
+                    scoresPayload.forEach(function(item)
+                    {
+                        const idx = app.state.scoreCards.findIndex(function(sc) { return sc.id === item.id; });
+                        if (idx !== -1) 
+                        {
+                            app.state.scoreCards[idx] = item;
+                        }
+                        else 
+                        {
+                            app.state.scoreCards.push(item);
+                        }
+                        
+                        delete app.state.liveScores[`${item.spieltagId}_${item.spielerId}_${item.hole}`];
+                    });
+
+                    alert("Scores erfolgreich mit dem Clubhaus synchronisiert!");
+                    if (syncBtn)
+                    {
+                        syncBtn.disabled = false;
+                        syncBtn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Sichern`;
+                    }
+                }
+                else
+                {
+                    alert("Fehler bei der Übertragung: " + response.error);
+                    if (syncBtn)
+                    {
+                        syncBtn.disabled = false;
+                        syncBtn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Sichern`;
+                    }
+                }
+            })
+            .withFailureHandler(function(err)
+            {
+                alert("Netzwerkfehler: " + err);
+                if (syncBtn)
+                {
+                    syncBtn.disabled = false;
+                    syncBtn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Sichern`;
+                }
+            })
+            .saveLiveScores(scoresPayload);
+    },
+
+    // Globaler Daten-Refresh im Hintergrund
+    refreshGlobalAppData: function()
+    {
+        const icon = document.getElementById('global-refresh-icon');
+        const btn = document.getElementById('global-refresh-btn');
+        
+        if (btn && icon)
+        {
+            btn.disabled = true;
+            icon.classList.add('fa-spin');
+        }
+
+        if (typeof google !== 'undefined' && google.script && google.script.run)
+        {
+            google.script.run
+                .withSuccessHandler(function(response)
+                {
+                    if (response && response.success === true)
+                    {
+                        app.state.spieler = response.spieler || [];
+                        app.state.golfplaetze = response.golfplaetze || [];
+                        app.state.kurse = response.kurse || [];
+                        app.state.bahnen = response.bahnen || [];
+                        app.state.handicaps = response.handicaps || [];
+                        app.state.spieltage = response.spieltage || [];
+                        app.state.scoreCards = response.scoreCards || [];
+                        app.state.flights = response.flights || [];
+
+                        if (app.state.currentUser)
+                        {
+                            const freshUserMatch = app.state.spieler.find(function(s) 
+                            { 
+                                return String(s.id).trim() === String(app.state.currentUser.id).trim(); 
+                            });
+                            
+                            if (freshUserMatch)
+                            {
+                                app.state.currentUser = freshUserMatch;
+                            }
+                        }
+
+                        app.router.updateNavigationUI(app.state.currentView);
+                        app.logic.updateHeaderRoleIcon();
+                        app.router.navigate(app.state.currentView);
+                    }
+                    
+                    setTimeout(function()
+                    {
+                        if (btn && icon)
+                        {
+                            btn.disabled = false;
+                            icon.classList.remove('fa-spin');
+                        }
+                    }, 500);
+                })
+                .withFailureHandler(function(err)
+                {
+                    console.error("Fehler beim Hintergrund-Refresh:", err);
+                    if (btn && icon)
+                    {
+                        btn.disabled = false;
+                        icon.classList.remove('fa-spin');
+                    }
+                    alert("Daten konnten nicht aktualisiert werden. Bist du offline?");
+                })
+                .getInitialAppData();
+        }
+    },
+
+    // Aktualisiert das Rollen-Symbol im globalen Header
+    updateHeaderRoleIcon: function()
+    {
+        const badgeContainer = document.getElementById('header-role-badge');
+        if (!badgeContainer) 
+        {
+            return;
+        }
+
+        if (!app.state.currentUser || !app.state.currentUser.role)
+        {
+            badgeContainer.innerHTML = "";
+            return;
+        }
+
+        const rolle = app.state.currentUser.role;
+        let iconHtml = "";
+
+        if (rolle === "Admin")
+        {
+            iconHtml = `<i class="fas fa-user-shield text-amber-400 text-sm" title="Rolle: Administrator"></i>`;
+        }
+        else if (rolle === "Spielleiter")
+        {
+            iconHtml = `<i class="fas fa-clipboard-list text-stone-200 text-sm" title="Rolle: Spielleiter"></i>`;
+        }
+        else
+        {
+            iconHtml = `<i class="fas fa-golf-ball text-stone-300 text-xs" title="Rolle: Spieler"></i>`;
+        }
+
+        badgeContainer.innerHTML = iconHtml;
+    },
+
+    // Wechselt die Formular-Anzeige bei Rundenplanung (Zufall vs Manuell)
+    toggleFlightMode: function()
+    {
+        const manualRadio = document.querySelector('input[name="flight-mode"]:checked');
+        const autoSect = document.getElementById('auto-flight-section');
+        const manSect = document.getElementById('manual-flight-section');
+        const previewCont = document.getElementById('flight-preview-container');
+
+        if (!manualRadio || !autoSect || !manSect || !previewCont) 
+        {
+            return;
+        }
+
+        if (manualRadio.value === 'manual')
+        {
+            autoSect.classList.add('hidden');
+            manSect.classList.remove('hidden');
+            previewCont.classList.add('hidden');
+            
+            app.logic.buildManualFlightsBuilder();
+        }
+        else
+        {
+            autoSect.classList.remove('hidden');
+            manSect.classList.add('hidden');
+            previewCont.classList.add('hidden');
+        }
+    },
+
+    // Generiert das Klick-Interface für manuellen Flightbau
+    buildManualFlightsBuilder: function()
+    {
+        if (!app.state.tempManualFlights || Object.keys(app.state.tempManualFlights).length === 0)
+        {
+            app.state.tempManualFlights = { 1: [] };
+            app.state.activeManualFlightSeq = 1;
+        }
+        app.logic.renderAllManualFlights();
+        app.logic.renderAvailablePlayerChips();
+    },
+
+    addEmptyManualFlight: function()
+    {
+        const keys = Object.keys(app.state.tempManualFlights).map(Number);
+        const nextSeq = keys.length > 0 ? Math.max(...keys) + 1 : 1;
+        
+        app.state.tempManualFlights[nextSeq] = [];
+        app.state.activeManualFlightSeq = nextSeq;
+        
+        app.logic.renderAllManualFlights();
+        app.logic.renderAvailablePlayerChips();
+    },
+
+    renderAllManualFlights: function()
+    {
+        const builderCont = document.getElementById('manual-flights-builder');
+        if (!builderCont) 
+        {
+            return;
+        }
+
+        let builderHtml = "";
+        Object.keys(app.state.tempManualFlights).forEach(function(fKey)
+        {
+            const flightNr = parseInt(fKey);
+            const spielerIds = app.state.tempManualFlights[flightNr] || [];
+            const anzahlSpieler = spielerIds.length;
+            
+            let spielerListeHtml = `
+                <p class="text-stone-400 text-xs italic text-center py-2">
+                    Noch leer. Spieler unten anklicken...
+                </p>
+            `;
+
+            if (anzahlSpieler > 0)
+            {
+                spielerListeHtml = spielerIds.map(function(sId)
+                {
+                    const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === String(sId).trim(); });
+                    return `
+                        <div class="flex justify-between items-center bg-stone-100 p-2 rounded-xl border border-stone-200 text-stone-800 font-medium text-xs">
+                            <span>${spieler ? spieler.name + ' (' + spieler.nickname + ')' : sId}</span>
+                            <button onclick="app.logic.removeSpielerFromManualFlight(${flightNr}, '${sId}'); event.stopPropagation();" class="text-red-600 px-2 touch-target"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            const isActive = (flightNr === app.state.activeManualFlightSeq);
+            const activeStyle = isActive ? 'border-emerald-500 bg-emerald-50/10' : 'border-stone-200 bg-white';
+
+            builderHtml += `
+                <div onclick="app.state.activeManualFlightSeq = ${flightNr}; app.logic.renderAllManualFlights();" class="p-4 border ${activeStyle} rounded-2xl space-y-2 cursor-pointer transition">
+                    <h5 class="text-xs font-bold text-stone-600 uppercase tracking-wider">Flight ${flightNr} (${anzahlSpieler} Spieler)</h5>
+                    <div class="space-y-1">
+                        ${spielerListeHtml}
+                    </div>
+                </div>
+            `;
+        });
+
+        builderCont.innerHTML = builderHtml;
+    },
+
+    renderAvailablePlayerChips: function()
+    {
+        const chipsCont = document.getElementById('available-players-chips');
+        if (!chipsCont) 
+        {
+            return;
+        }
+
+        const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
+        const gewaehlteIds = Array.from(checkedBoxes).map(function(cb) { return cb.value; });
+
+        let bereitsInFlight = [];
+        Object.keys(app.state.tempManualFlights).forEach(function(fKey)
+        {
+            bereitsInFlight = bereitsInFlight.concat(app.state.tempManualFlights[fKey]);
+        });
+
+        const freieIds = gewaehlteIds.filter(function(id) { return !bereitsInFlight.includes(id); });
+
+        if (freieIds.length === 0)
+        {
+            chipsCont.innerHTML = `<p class="text-stone-400 text-xs italic mx-auto">Alle Spieler zugeordnet.</p>`;
+            return;
+        }
+
+        chipsCont.innerHTML = freieIds.map(function(sId)
+        {
+            const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === String(sId).trim(); });
+            const name = spieler ? spieler.nickname : sId;
+            return `
+                <button type="button" onclick="app.logic.addSpielerToManualFlight('${sId}')" class="bg-white border border-stone-200 hover:bg-stone-50 px-3 py-1.5 rounded-xl text-xs font-semibold text-stone-700 flex items-center gap-1 shadow-3xs touch-target">
+                    <i class="fas fa-user-plus text-stone-400 text-[10px]"></i> ${name}
+                </button>
+            `;
+        }).join('');
+    },
+
+    addSpielerToManualFlight: function(spielerId)
+    {
+        const aktSeq = app.state.activeManualFlightSeq;
+        if (!app.state.tempManualFlights[aktSeq]) 
+        {
+            app.state.tempManualFlights[aktSeq] = [];
+        }
+
+        if (app.state.tempManualFlights[aktSeq].length >= 4)
+        {
+            alert("Ein Flight darf maximal 4 Spieler enthalten.");
+            return;
+        }
+
+        app.state.tempManualFlights[aktSeq].push(spielerId);
+        app.logic.renderAllManualFlights();
+        app.logic.renderAvailablePlayerChips();
+    },
+
+    removeSpielerFromManualFlight: function(flightNr, spielerId)
+    {
+        if (!app.state.tempManualFlights[flightNr]) 
+        {
+            return;
+        }
+        app.state.tempManualFlights[flightNr] = app.state.tempManualFlights[flightNr].filter(function(id) { return id !== spielerId; });
+        app.logic.renderAllManualFlights();
+        app.logic.renderAvailablePlayerChips();
+    },
+
+    saveManualFlights: function()
+    {
+        const kursSelect = document.getElementById('new-spieltag-kurs');
+        const dateInput = document.getElementById('new-spieltag-date');
+        const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
+        const gewaehlteIds = Array.from(checkedBoxes).map(function(cb) { return cb.value; });
+
+        if (!kursSelect || !dateInput || gewaehlteIds.length === 0) 
+        {
+            return;
+        }
+
+        if (!app.state.tempManualFlights || Object.keys(app.state.tempManualFlights).length === 0)
+        {
+            alert("Bitte ordne die Spieler zuerst den Flights zu!");
+            return;
+        }
+
+        let verbauteIds = [];
+        Object.keys(app.state.tempManualFlights).forEach(function(fKey)
+        {
+            verbauteIds = verbauteIds.concat(app.state.tempManualFlights[fKey]);
+        });
+
+        if (verbauteIds.length !== gewaehlteIds.length)
+        {
+            alert("Es wurden noch nicht alle ausgewählten Turnierteilnehmer einem Flight zugewiesen!");
+            return;
+        }
+
+        const spieltagId = "ST-" + Date.now();
+        const spieltagObj = {
+            id: spieltagId,
+            date: dateInput.value,
+            kursId: kursSelect.value,
+            status: "Aktiv",
+            teilnehmerCsv: gewaehlteIds.join(','),
+            bruttoSieger: "",
+            nettoSieger: ""
+        };
+
+        const flightsPayload = [];
+        Object.keys(app.state.tempManualFlights).forEach(function(fKey)
+        {
+            const flightSpielerIds = app.state.tempManualFlights[fKey];
+            if (flightSpielerIds.length > 0)
+            {
+                flightsPayload.push({
+                    id: `FL-${spieltagId}-${fKey}`,
+                    spieltagId: spieltagId,
+                    spielerIdsCsv: flightSpielerIds.join(',')
+                });
+            }
+        });
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    app.state.spieltage.push(spieltagObj);
+                    flightsPayload.forEach(function(f) { app.state.flights.push(f); });
+                    
+                    alert("Spieltag und manuelle Flights erfolgreich angelegt!");
+                    app.router.navigate('spieltage');
+                }
+                else
+                {
+                    alert("Fehler beim Speichern: " + response.error);
+                }
+            })
+            .createNewSpieltag(spieltagObj, flightsPayload);
+    },
+
+    // Zufälliges Zusammenlosen der Flights (Unterstützt 2er, 3er und 4er Flights)
+    previewFlights: function()
+    {
+        const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
+        const gewaehlteIds = Array.from(checkedBoxes).map(function(cb) { return cb.value; });
+        const sizeRadio = document.querySelector('input[name="flight-size"]:checked');
+        const previewCont = document.getElementById('flight-preview-container');
+
+        if (gewaehlteIds.length === 0 || !sizeRadio || !previewCont)
+        {
+            alert("Bitte wähle mindestens einen teilnehmenden Spieler aus!");
+            return;
+        }
+
+        const flightGroesse = parseInt(sizeRadio.value);
+        
+        // Mischen per Fisher-Yates Algorithmus
+        const gemischteIds = [...gewaehlteIds];
+        for (let i = gemischteIds.length - 1; i > 0; i--)
+        {
+            const j = Math.floor(Math.random() * (i + 1));
+            [gemischteIds[i], gemischteIds[j]] = [gemischteIds[j], gemischteIds[i]];
+        }
+
+        const generierteFlights = [];
+        while (gemischteIds.length > 0)
+        {
+            generierteFlights.push(gemischteIds.splice(0, flightGroesse));
+        }
+
+        // Restsortierung optimieren, um unfaire 1er-Restflights komplett zu verhindern
+        if (generierteFlights.length > 1 && generierteFlights[generierteFlights.length - 1].length === 1)
+        {
+            const einsamerSpieler = generierteFlights.pop()[0];
+            generierteFlights[generierteFlights.length - 1].push(einsamerSpieler);
+        }
+
+        app.state.tempZufallsFlights = generierteFlights;
+
+        let previewHtml = `<h4 class="text-xs font-bold text-stone-500 uppercase tracking-wider mt-2"><i class="fas fa-eye"></i> Auslosungs-Vorschau</h4>`;
+        generierteFlights.forEach(function(flightIds, index)
+        {
+            const namenList = flightIds.map(function(id)
+            {
+                const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === String(id).trim(); });
+                return spieler ? spieler.nickname : id;
+            }).join(', ');
+
+            previewHtml += `
+                <div class="p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-800 font-semibold">
+                    <span class="text-emerald-700 font-bold">Flight ${index + 1}:</span> ${namenList}
+                </div>
+            `;
+        });
+
+        previewHtml += `
+            <button onclick="app.logic.saveZufallsFlights()" class="w-full bg-stone-900 hover:bg-stone-800 text-white font-bold py-3 rounded-xl transition text-sm shadow-xs mt-1">
+                <i class="fas fa-check-circle mr-1"></i> Auslosung bestätigen & Runde starten
+            </button>
+        `;
+
+        previewCont.innerHTML = previewHtml;
+        previewCont.classList.remove('hidden');
+    },
+
+    saveZufallsFlights: function()
+    {
+        const kursSelect = document.getElementById('new-spieltag-kurs');
+        const dateInput = document.getElementById('new-spieltag-date');
+        const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
+        const gewaehlteIds = Array.from(checkedBoxes).map(function(cb) { return cb.value; });
+
+        if (!kursSelect || !dateInput || !app.state.tempZufallsFlights) 
+        {
+            return;
+        }
+
+        const spieltagId = "ST-" + Date.now();
+        const spieltagObj = {
+            id: spieltagId,
+            date: dateInput.value,
+            kursId: kursSelect.value,
+            status: "Aktiv",
+            teilnehmerCsv: gewaehlteIds.join(','),
+            bruttoSieger: "",
+            nettoSieger: ""
+        };
+
+        const flightsPayload = app.state.tempZufallsFlights.map(function(flightIds, index)
+        {
+            return {
+                id: `FL-${spieltagId}-${index + 1}`,
+                spieltagId: spieltagId,
+                spielerIdsCsv: flightIds.join(',')
+            };
+        });
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    app.state.spieltage.push(spieltagObj);
+                    flightsPayload.forEach(function(f) { app.state.flights.push(f); });
+                    
+                    alert("Spieltag und Flights erfolgreich generiert!");
+                    app.router.navigate('spieltage');
+                }
+                else
+                {
+                    alert("Fehler aufgetreten: " + response.error);
+                }
+            })
+            .createNewSpieltag(spieltagObj, flightsPayload);
+    },
+
+    // Spielleiter-Funktion: Bricht einen Spieltag offiziell ab (Status "Abgebrochen")
+    cancelActiveSpieltag: function(spieltagId)
+    {
+        if (!confirm("Möchtest du diesen Spieltag wirklich abbrechen?\n\nDie Runde wird aus der Übersicht ausgeblendet, bleibt aber in der Datenbank dokumentiert."))
+        {
+            return;
+        }
+
+        const btn = document.getElementById('cancel-round-btn');
+        if (btn)
+        {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Verarbeite Abbruch...`;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    const spieltag = app.state.spieltage.find(function(st) { return st.id === spieltagId; });
+                    if (spieltag)
+                    {
+                        spieltag.status = "Abgebrochen";
+                    }
+
+                    alert("Der Spieltag wurde erfolgreich abgebrochen!");
+                    app.router.navigate('spieltage');
+                }
+                else
+                {
+                    alert("Fehler beim Abbrechen auf dem Server: " + response.error);
+                    if (btn)
+                    {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-times-circle mr-1"></i> Spieltag abbrechen`;
+                    }
+                }
+            })
+            .withFailureHandler(function(err)
+            {
+                alert("Netzwerkfehler beim Rundenabbruch: " + err);
+                if (btn)
+                {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="fas fa-times-circle mr-1"></i> Spieltag abbrechen`;
+                }
+            })
+            .cancelSpieltagServer(spieltagId);
+    },
+
+    // Spielleiter-Funktion: Beendet den Spieltag, berechnet HCP-Updates und friert Sieger ein
+    closeActiveSpieltag: function(spieltagId, bruttoSieger, nettoSieger)
+    {
+        const spieltag = app.state.spieltage.find(function(st) { return String(st.id).trim() === String(spieltagId).trim(); });
+        if (!spieltag)
+        {
+            alert("Spieltag nicht gefunden!");
+            return;
+        }
+
+        const teilnehmerString = String(spieltag.teilnehmerCsv || "");
+        const teilnehmerIds = teilnehmerString ? teilnehmerString.split(',').map(function(id) { return String(id).trim(); }) : [];
+        
+        const kurs = app.state.kurse.find(function(k) { return String(k.id).trim() === String(spieltag.kursId).trim(); });
+        const kursBahnen = app.state.bahnen.filter(function(b) { return String(b.kursId).trim() === String(spieltag.kursId).trim(); });
+
+        // === DYNAMISCHE RETTUNG FÜR DIE RUNDENLÄNGE ===
+        // 1. Priorität: Wir schauen in die Spalte 'bahnAnzahl' des Kurses
+        let maxBahnen = (kurs && kurs.bahnAnzahl) ? parseInt(kurs.bahnAnzahl) : 0;
+        
+        // 2. Priorität: Falls dort nichts steht, zählen wir die Bahnen in ref_KursBahnen
+        if (maxBahnen === 0)
+        {
+            maxBahnen = kursBahnen.length;
+        }
+
+        // 3. Priorität: Absolute Notlandung (Sicherheits-Fallback)
+        if (maxBahnen === 0)
+        {
+            maxBahnen = 9; // Wir nehmen für die LIE-Runde im Zweifel 9 an
+        }
+
+        const stablefordSoll = (maxBahnen <= 9) ? 18 : 36;
+
+        console.log(`[HCP-DASH] Runden-Analyse gestartet: Kurs-ID=${spieltag.kursId}, Erkannte Bahnenanzahl=${maxBahnen}, Erwartetes Stableford-Soll=${stablefordSoll}`);
+
+        // Bereite das Array für die Handicap-Änderungen vor
+        const handicapUpdates = [];
+        let infoText = "";
+
+        teilnehmerIds.forEach(function(spielerId)
+        {
+            const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === spielerId; });
+            if (!spieler) 
+            {
+                return;
+            }
+
+            const dbScores = app.state.scoreCards.filter(function(sc) 
+            {
+                return String(sc.spieltagId).trim() === String(spieltagId).trim() && String(sc.spielerId).trim() === spielerId;
+            });
+
+            let totalNettoStableford = 0;
+            let playedHoles = 0;
+
+            // Wir laufen durch die tatsächlich im System gefundenen Bahnen
+            // Sollte die Liste leer sein, simulieren wir eine 9-Loch-Schleife
+            const bahnenSchleife = kursBahnen.length > 0 ? kursBahnen : Array.from({length: maxBahnen}, function(_, i) { return { nr: i + 1, par: 4, si: 10 }; });
+
+            bahnenSchleife.forEach(function(bahn)
+            {
+                const hNr = parseInt(bahn.nr);
+                const liveKey = `${spieltagId}_${spielerId}_${hNr}`;
+                let strokes = app.state.liveScores[liveKey];
+
+                if (strokes === undefined)
+                {
+                    const dbMatch = dbScores.find(function(sc) { return sc.hole !== undefined && parseInt(sc.hole) === hNr; });
+                    if (dbMatch) 
+                    {
+                        strokes = parseInt(dbMatch.strokes);
+                    }
+                }
+
+                if (strokes !== undefined && strokes > 0)
+                {
+                    playedHoles++;
+                    let holeVorgabe = app.logic.calculateHoleVorgabe(spieler, spieltag.kursId, bahn.si);
+                    const nettoPkt = app.logic.calculateNettoStableford(strokes, bahn.par, holeVorgabe);
+                    totalNettoStableford += nettoPkt;
+                }
+            });
+
+            // Handicap-Anpassung berechnen
+            if (playedHoles >= maxBahnen)
+            {
+                const altesHcp = parseInt(spieler.hcpLIE) || 54;
+                let neuesHcp = altesHcp;
+
+                console.log(`[HCP-DASH] Berechne für ${spieler.nickname}: altes HCP=${altesHcp}, erzielte Netto-Punkte=${totalNettoStableford}, Soll=${stablefordSoll}`);
+
+                if (totalNettoStableford > stablefordSoll)
+                {
+                    const punkteUeberSoll = totalNettoStableford - stablefordSoll;
+                    const verbesserung = punkteUeberSoll * 0.5;
+                    neuesHcp = Math.max(0, Math.round(altesHcp - verbesserung));
+                    
+                    console.log(`[HCP-DASH] ${spieler.nickname} hat sich verbessert! Abzug: ${verbesserung} Schläge. Berechnetes neues HCP: ${neuesHcp}`);
+                }
+                else if (totalNettoStableford < stablefordSoll)
+                {
+                    const punkteUnterSoll = stablefordSoll - totalNettoStableford;
+                    const verschlechterung = punkteUnterSoll * 0.1;
+                    neuesHcp = Math.min(54, Math.round(altesHcp + verschlechterung));
+                    
+                    console.log(`[HCP-DASH] ${spieler.nickname} hat sich verschlechtert! Aufschlag: ${verschlechterung} Schläge. Berechnetes neues HCP: ${neuesHcp}`);
+                }
+                else
+                {
+                    console.log(`[HCP-DASH] ${spieler.nickname} liegt genau im Soll von ${stablefordSoll} Punkten. Keine HCP-Änderung.`);
+                }
+
+                if (parseInt(neuesHcp) !== parseInt(altesHcp))
+                {
+                    handicapUpdates.push({
+                        spielerId: String(spielerId).trim(),
+                        newHcpLie: parseInt(neuesHcp)
+                    });
+                    infoText += `\n• ${spieler.nickname}: ${altesHcp} ➔ ${neuesHcp} (${totalNettoStableford} Netto-Pkt)`;
+                }
+            }
+            else
+            {
+                console.log(`[HCP-DASH] ${spieler.nickname} hat nur ${playedHoles} von ${maxBahnen} Löchern gespielt. Keine HCP-Berechnung.`);
+            }
+        });
+
+        const confirmationMsg = `Möchtest du die Runde jetzt schließen?\n\nSieger:\n🏆 Brutto: ${bruttoSieger}\n⭐ Netto: ${nettoSieger}\n\nFolgende LIE-Handicaps werden angepasst:${infoText || "\nKeine Änderungen (alle im Pufferbereich)"}\n\nDanach sind keine Score-Korrekturen mehr möglich.`;
+
+        if (!confirm(confirmationMsg))
+        {
+            return;
+        }
+
+        const btn = document.getElementById('close-round-btn');
+        if (btn)
+        {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Berechne & Schließe...`;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    const spieltagObj = app.state.spieltage.find(function(st) { return String(st.id).trim() === String(spieltagId).trim(); });
+                    if (spieltagObj)
+                    {
+                        spieltagObj.status = "Beendet";
+                        spieltagObj.bruttoSieger = bruttoSieger;
+                        spieltagObj.nettoSieger = nettoSieger;
+                    }
+
+                    handicapUpdates.forEach(function(upd)
+                    {
+                        const sp = app.state.spieler.find(function(s) { return String(s.id).trim() === String(upd.spielerId).trim(); });
+                        if (sp)
+                        {
+                            sp.hcpLIE = upd.newHcpLie;
+                        }
+                    });
+
+                    alert("Der Spieltag wurde offiziell beendet und die neuen LIE-Handicaps wurden verbucht!");
+                    app.router.navigate('spieltage');
+                }
+                else
+                {
+                    alert("Fehler beim Beenden der Runde: " + response.error);
+                    if (btn)
+                    {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-flag-checkered mr-1"></i> Spieltag offiziell beenden`;
+                    }
+                }
+            })
+            .closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpdates);
+    },
+
+    // Login-Prozess: Prüft die PIN-Eingabe gegen die verschlüsselten Server-Salts
+    submitPin: function()
+    {
+        const sel = document.getElementById('login-spieler-select');
+        const pinIn = document.getElementById('login-pin-input');
+        if (!sel || !pinIn) 
+        {
+            return;
+        }
+
+        const spielerId = sel.value;
+        const pin = pinIn.value.trim();
+
+        if (!spielerId || !pin)
+        {
+            alert("Bitte wähle deinen Namen aus und tippe deine PIN ein!");
+            return;
+        }
+
+        const btn = document.getElementById('login-submit-btn');
+        if (btn)
+        {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Authentifizierung...`;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === String(spielerId).trim(); });
+                
+                if (response && response.success)
+                {
+                    app.state.currentUser = spieler;
+                    localStorage.setItem('lie_scorecard_user_id', spieler.id);
+                    app.logic.updateHeaderRoleIcon();
+
+                    if (response.mustChange)
+                    {
+                        app.router.navigate('pin_aendern');
+                    }
+                    else
+                    {
+                        app.router.navigate('dashboard');
+                    }
+                }
+                else
+                {
+                    alert(response ? response.error : "Login fehlgeschlagen.");
+                    if (btn)
+                    {
+                        btn.disabled = false;
+                        btn.innerHTML = `Einloggen <i class="fas fa-sign-in-alt ml-1"></i>`;
+                    }
+                }
+            })
+            .withFailureHandler(function(err)
+            {
+                alert("Verbindungsfehler zum Server: " + err);
+                if (btn)
+                {
+                    btn.disabled = false;
+                    btn.innerHTML = `Einloggen <i class="fas fa-sign-in-alt ml-1"></i>`;
+                }
+            })
+            .verifyPlayerPin(spielerId, pin);
+    },
+
+    // Loggt den aktuellen Benutzer aus und leert den Gerätespeicher
+    logout: function()
+    {
+        if (confirm("Möchtest du dich wirklich ausloggen?"))
+        {
+            app.state.currentUser = null;
+            localStorage.removeItem('lie_scorecard_user_id');
+            app.router.navigate('login');
+        }
+    },
+
+    // Ändert die Initial-PIN (4722) ab in eine persönliche Zahlenkombination
+    changePin: function()
+    {
+        const p1 = document.getElementById('pin-new-1');
+        const p2 = document.getElementById('pin-new-2');
+        if (!p1 || !p2 || !app.state.currentUser) 
+        {
+            return;
+        }
+
+        const val1 = p1.value.trim();
+        const val2 = p2.value.trim();
+
+        if (val1.length < 4 || isNaN(val1))
+        {
+            alert("Die PIN muss eine mindestens 4-stellige Zahlenkombination sein!");
+            return;
+        }
+
+        if (val1 !== val2)
+        {
+            alert("Die beiden PINs stimmen nicht überein!");
+            return;
+        }
+
+        if (val1 === "4722")
+        {
+            alert("Du darfst nicht die Standard-PIN '4722' verwenden. Bitte wähle eine eigene PIN!");
+            return;
+        }
+
+        const btn = document.getElementById('change-pin-btn');
+        if (btn)
+        {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere PIN...`;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    alert("Deine neue PIN wurde erfolgreich verschlüsselt hinterlegt!");
+                    app.router.navigate('dashboard');
+                }
+                else
+                {
+                    alert("Fehler bei PIN-Änderung: " + response.error);
+                    if (btn)
+                    {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-key mr-1"></i> PIN dauerhaft speichern`;
+                    }
+                }
+            })
+            .changePlayerPinServer(app.state.currentUser.id, val1);
+    },
+
+    // Admin-Funktion: Speichern eines Spielerprofils
+    savePlayer: function(isNew)
+    {
+        const idInput = document.getElementById('edit-sp-id');
+        const nicknameInput = document.getElementById('edit-sp-nickname');
+        const nameInput = document.getElementById('edit-sp-name');
+        const emailInput = document.getElementById('edit-sp-email');
+        const hcpOffInput = document.getElementById('edit-sp-hcpoff');
+        const hcpLieInput = document.getElementById('edit-sp-hcplie');
+        const teeSelect = document.getElementById('edit-sp-tee');
+        const roleSelect = document.getElementById('edit-sp-role');
+
+        if (!idInput || !nicknameInput || !nameInput || !emailInput) 
+        {
+            return;
+        }
+
+        const spielerObj = {
+            isNew: isNew,
+            id: idInput.value.trim(),
+            nickname: nicknameInput.value.trim(),
+            name: nameInput.value.trim(),
+            email: emailInput.value.trim(),
+            teeColor: teeSelect ? teeSelect.value : 'Gelb',
+            hcpOfficial: parseFloat(hcpOffInput ? hcpOffInput.value : 54.0),
+            hcpLIE: parseInt(hcpLieInput ? hcpLieInput.value : 54),
+            role: roleSelect ? roleSelect.value : 'Spieler'
+        };
+
+        if (!spielerObj.id || !spielerObj.nickname || !spielerObj.name || !spielerObj.email)
+        {
+            alert("Bitte fülle alle Pflichtfelder (*) aus!");
+            return;
+        }
+
+        const btn = document.getElementById('save-player-btn');
+        if (btn)
+        {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere Profil...`;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    alert("Spielerprofil erfolgreich gespeichert!");
+
+                    if (app.state.currentUser && String(app.state.currentUser.id).trim() === String(spielerObj.id).trim())
+                    {
+                        app.state.currentUser.role = spielerObj.role;
+                    }
+
+                    google.script.run
+                        .withSuccessHandler(function(freshData)
+                        {
+                            if (freshData && freshData.success)
+                            {
+                                app.state.spieler = freshData.spieler || [];
+                                app.state.spieltage = freshData.spieltage || [];
+                            }
+                            
+                            app.router.updateNavigationUI('spieler');
+                            app.logic.updateHeaderRoleIcon();
+                            app.router.navigate('spieler');
+                        })
+                        .getInitialAppData();
+                }
+                else
+                {
+                    alert("Fehler: " + (response ? response.error : "Unbekannter Fehler"));
+                    if (btn)
+                    {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-save mr-1"></i> Profil speichern`;
+                    }
+                }
+            })
+            .withFailureHandler(function(err)
+            {
+                alert("Netzwerkfehler beim Speichern des Spielers: " + err);
+                if (btn)
+                {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="fas fa-save mr-1"></i> Profil speichern`;
+                }
+            })
+            .savePlayerServer(spielerObj);
+    },
+
+    // Admin-Funktion: Entfernt einen Spieler physisch vom Server
+    deletePlayer: function(spielerId)
+    {
+        if (!confirm("Möchtest du diesen Spieler wirklich unwiderruflich aus der Datenbank löschen?\nAlle PIN-Einträge werden ebenfalls entfernt."))
+        {
+            return;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    app.state.spieler = app.state.spieler.filter(function(s) { return String(s.id).trim() !== String(spielerId).trim(); });
+                    alert("Spieler erfolgreich gelöscht.");
+                    app.router.navigate('spieler');
+                }
+                else
+                {
+                    alert("Fehler beim Löschen: " + response.error);
+                }
+            })
+            .deletePlayerServer(spielerId);
+    },
+
+    // Admin-Funktion: Setzt eine PIN zurück auf den Standardwert 4722
+    resetPlayerPin: function(spielerId)
+    {
+        if (!confirm("Möchtest du die PIN dieses Spielers wirklich auf den Standardwert '4722' zurücksetzen?\nDer Spieler wird beim nächsten Login gezwungen eine neue PIN festzulegen."))
+        {
+            return;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    alert("Die PIN wurde erfolgreich zurückgesetzt. Standard ist jetzt wieder 4722.");
+                }
+                else
+                {
+                    alert("Fehler bei PIN-Reset: " + response.error);
+                }
+            })
+            .setPlayerPin(spielerId, "4722", false);
+    },
+
+    // Admin-Funktion: Führt einen kompletten Reset aller Testdaten aus
+    triggerMasterReset: function()
+    {
+        if (!confirm("!!! GEFAHRENZONE !!!\n\nMöchtest du wirklich alle gespielten Runden, Flights und abgegebenen Scorekarten unwiderruflich löschen?\n\nDas System wird in den Urzustand versetzt. Diese Aktion kann NICHT rückgängig gemacht werden!"))
+        {
+            return;
+        }
+
+        const btn = document.getElementById('master-reset-db-btn');
+        if (btn)
+        {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-bomb fa-spin mr-1"></i> Sprengung läuft...`;
+        }
+
+        google.script.run
+            .withSuccessHandler(function(response)
+            {
+                if (response && response.success)
+                {
+                    alert("BUMM! Die Testdatenbank wurde erfolgreich gesprengt und gereinigt!");
+                    
+                    app.state.spieltage = [];
+                    app.state.scoreCards = [];
+                    app.state.flights = [];
+                    app.state.liveScores = {};
+                    
+                    app.router.navigate('dashboard');
+                }
+                else
+                {
+                    alert("Fehler beim Master-Reset: " + response.error);
+                    if (btn)
+                    {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="fas fa-bomb mr-1"></i> Testdaten-Sprengung ausführen`;
+                    }
+                }
+            })
+            .withFailureHandler(function(err)
+            {
+                alert("Kritischer Netzwerkfehler beim Master-Reset: " + err);
+                if (btn)
+                {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="fas fa-bomb mr-1"></i> Testdaten-Sprengung ausführen`;
+                }
+            })
+            .clearTestDataBase();
+    },
+
+    // Startet das automatische Polling für die aktiven Ansichten
+    startLivePolling: function(spieltagId, holeNr, flightSeq)
+    {
+        app.logic.stopLivePolling();
+
+        const triggerUpdate = function()
+        {
+            if (typeof google === 'undefined' || !google.script || !google.script.run)
+            {
+                return;
+            }
+
+            const statusDot = document.getElementById('connection-status');
+            if (statusDot)
+            {
+                statusDot.className = "w-3 h-3 rounded-full bg-amber-400";
+            }
+
+            google.script.run
+                .withSuccessHandler(function(response)
+                {
+                    if (statusDot)
+                    {
+                        statusDot.className = "w-3 h-3 rounded-full bg-emerald-400";
+                    }
+
+                    if (response && response.success)
+                    {
+                        const otherRoundScores = app.state.scoreCards.filter(function(sc)
+                        {
+                            return String(sc.spieltagId).trim() !== String(spieltagId).trim();
+                        });
+                        app.state.scoreCards = otherRoundScores.concat(response.scoreCards || []);
+
+                        if (response.pollingRate && response.pollingRate !== app.state.currentPollingRate)
+                        {
+                            app.state.currentPollingRate = response.pollingRate;
+                            app.logic.startLivePolling(spieltagId, holeNr, flightSeq);
+                        }
+
+                        const container = document.getElementById('app-container');
+                        if (container)
+                        {
+                            if (app.state.currentView === 'leaderboard')
+                            {
+                                const activeTab = document.querySelector('[onclick*="brutto"]').classList.contains('bg-white') ? 'brutto' : 'netto';
+                                container.innerHTML = app.views.leaderboard(spieltagId, activeTab);
+                            }
+                            else if (app.state.currentView === 'score_eingabe' && holeNr)
+                            {
+                                const ungesicherteAenderungen = Object.keys(app.state.liveScores).filter(function(k)
+                                {
+                                    return k.startsWith(spieltagId + "_");
+                                }).length;
+
+                                if (ungesicherteAenderungen === 0)
+                                {
+                                    container.innerHTML = app.views.score_eingabe(spieltagId, holeNr, flightSeq);
+                                }
+                            }
+                        }
+                    }
+                })
+                .withFailureHandler(function(err)
+                {
+                    if (statusDot)
+                    {
+                        statusDot.className = "w-3 h-3 rounded-full bg-red-400";
+                    }
+                    console.warn("Polling-Update fehlgeschlagen:", err);
+                })
+                .getLiveScoreUpdates(spieltagId);
+        };
+
+        const msInterval = app.state.currentPollingRate * 1000;
+        app.state.pollingIntervalId = setInterval(triggerUpdate, msInterval);
+    },
+
+    // Stoppt den Hintergrund-Timer sofort
+    stopLivePolling: function()
+    {
+        if (app.state.pollingIntervalId)
+        {
+            clearInterval(app.state.pollingIntervalId);
+            app.state.pollingIntervalId = null;
+        }
+    }
+};
+</script>
