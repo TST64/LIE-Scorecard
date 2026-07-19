@@ -5,7 +5,99 @@
 // BSD (Allman) Style
 // =========================================================================
 
+
+/**
+ * BRIDGE-LAYER
+ * Leitet alle alten 'google.script.run' Aufrufe auf das neue API-Gateway um.
+ */
+window.google = window.google || {};
+window.google.script = {
+    run: {
+        withSuccessHandler: function(cb) { this.successCb = cb; return this; },
+        withFailureHandler: function(cb) { this.failureCb = cb; return this; },
+        // Hier werden alle alten Funktionsaufrufe abgefangen
+        // Beispiel: .saveLiveScores(data) wird zu Action 'saveLiveScores'
+        __call: function(action, args) {
+            console.log(`[BRIDGE] Weiterleitung an API: ${action}`); // <-- Debugging
+            const payload = args.length > 0 ? args[0] : {};
+            
+            // Wenn es sich um Funktionen handelt, die kein "payload" als erstes Argument haben,
+            // müssen wir die Argumente hier eventuell anpassen. 
+            // Aber bei deinem Code sieht alles nach einem Objekt-Payload aus!
+            
+            app.logic.apiRequest(action, payload).then(res => {
+                if (res.success) { 
+                    if (this.successCb) this.successCb(res); 
+                } else { 
+                    console.error(`[BRIDGE Error] ${action}:`, res.error);
+                    if (this.failureCb) this.failureCb(res.error); 
+                }
+            });
+            return this;
+        }
+    }
+};
+
+// Proxy für google.script.run, um dynamische Funktionsaufrufe zu erlauben
+google.script.run = new Proxy(google.script.run, {
+    get: function(target, prop) {
+        if (prop === 'withSuccessHandler' || prop === 'withFailureHandler' || prop === 'successCb' || prop === 'failureCb') return target[prop];
+        return function(...args) { return target.__call(prop, args); };
+    }
+});
+
+
+
+// In App_Logic_Core.html
 app.logic = 
+{
+    // Die neue API-Schnittstelle
+    apiRequest: async function(action, payload = {})
+    {
+        const API_URL = "https://script.google.com/macros/s/AKfycbyeo7zSNQTOWp6arz-iU2dklZvZ3ii_GkYJkfZV_uklxSyVEUgH5SuUNekhxJ_EHx6TNg/exec";
+        
+        // UX: Zeige globalen Loading-Indikator, falls gewünscht
+        console.log(`[API Request] Action: ${action}`);
+
+        try
+        {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                mode: 'cors', // Aktiviert CORS für dein GitHub Pages Setup
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, ...payload })
+            });
+
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+            
+            return await response.json();
+        }
+        catch (error)
+        {
+            console.error("[API Error]", error);
+            app.logic.showToast("Server-Verbindungsfehler", "error");
+            return { success: false, error: error.message };
+        }
+    },
+
+    // Beispiel für den Aufruf (Ersatz für google.script.run)
+    refreshGlobalAppData: async function()
+    {
+        const response = await app.logic.apiRequest('getInitialAppData');
+        if (response.success)
+        {
+            app.state.spieler = response.spieler || [];
+            // ... restliche States zuweisen
+            app.router.navigate(app.state.currentView);
+        }
+    }
+};
+
+//Die alte Business Logic bleibt asl app.logicGAS erhalten. 
+// sie nutzt die google.script.run funktion, die in der auf
+// GIT publizierten Version durcch den oben definierte BRIDGE Layer
+// simuliert wird.
+app.logicGAS = 
 {
     // Ermittelt die anteilige Spielvorgabe pro Loch basierend auf dem Stammblatt
     calculateHoleVorgabe: function(spieler, kursId, holeSi)

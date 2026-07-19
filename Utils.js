@@ -1,19 +1,12 @@
 /**
- * Konvertiert jede beliebige Tabelle dynamisch in ein sauberes JSON-Objekt-Array.
- * Repariert zerstörte CSV-Zahlenketten (z.B. 101104102 -> 101,104,102) vollautomatisch beim Laden.
+ * Konvertiert eine Tabelle in JSON, optional gefiltert nach einer Spalte und einem Wert.
  */
-function getSheetDataAsJson(sheet)
+function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
 {
-    if (!sheet)
-    {
-        return [];
-    }
+    if (!sheet) return [];
 
     const data = sheet.getDataRange().getValues();
-    if (data.length <= 1)
-    {
-        return [];
-    }
+    if (data.length <= 1) return [];
 
     const headers = data[0];
     const rows = data.slice(1);
@@ -25,41 +18,29 @@ function getSheetDataAsJson(sheet)
         {
             let val = row[index];
             
-            // 1. Datums-Objekte bereinigen
-            if (val instanceof Date)
-            {
-                const year = val.getFullYear();
-                const month = String(val.getMonth() + 1).padStart(2, '0');
-                const day = String(val.getDate()).padStart(2, '0');
-                val = year + "-" + month + "-" + day;
+            // Datums-Bereinigung und CSV-Rettungsanker (wie bisher)
+            if (val instanceof Date) {
+                val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd");
             }
             
-            // 2. AUTOMATISCHER RETTUNGSANKER FÜR KOMMALOSE FLIGHT- & TEILNEHMER-LISTEN
-            if ((header === "teilnehmerCsv" || header === "spielerIdsCsv") && val !== null && val !== undefined)
-            {
+            if ((header === "teilnehmerCsv" || header === "spielerIdsCsv") && val) {
                 let cleanStr = String(val).trim();
-                
-                // Wenn Google Sheets die Kommas gefressen hat (String besteht nur aus Zahlen und ist länger als 3 Zeichen)
-                if (cleanStr !== "" && !cleanStr.includes(",") && /^\d+$/.test(cleanStr) && cleanStr.length > 3)
-                {
-                    // Zerlege den String alle 3 Zeichen (für 3-stellige IDs wie 101, 102...)
-                    const repairedArray = cleanStr.match(/.{1,3}/g);
-                    if (repairedArray)
-                    {
-                        val = repairedArray.join(",");
-                    }
-                }
-                else
-                {
+                if (cleanStr !== "" && !cleanStr.includes(",") && /^\d+$/.test(cleanStr) && cleanStr.length > 3) {
+                    val = cleanStr.match(/.{1,3}/g).join(",");
+                } else {
                     val = cleanStr;
                 }
             }
-            
             obj[header] = val;
         });
         return obj;
+    }).filter(function(item) {
+        // Filtere nur, wenn ein Filter definiert ist
+        return filterCol === null || String(item[filterCol]).trim() === String(filterVal).trim();
     });
 }
+
+
 /**
  * Löscht alle Datensätze aus app_Spieltage, app_Flights und app_ScoreCards.
  * Die Header-Zeilen (Zeile 1) bleiben dabei strikt erhalten.

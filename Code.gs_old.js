@@ -1,8 +1,17 @@
 /**
- * BMAssistent / LIE Scorecard - Backend API
- * Code.js
- * BSD (Allman) Style
+ * Holt eine konfigurierte Tabellen-URL aus den Script-Properties.
  */
+function getSpreadsheetUrl(propertyName)
+{
+    const props = PropertiesService.getScriptProperties();
+    const url = props.getProperty(propertyName);
+    
+    if (!url)
+    {
+        throw new Error("Projekteigenschaft '" + propertyName + "' wurde im Apps Script Projekt nicht gefunden!");
+    }
+    return url;
+}
 
 function doGet(e)
 {
@@ -12,116 +21,6 @@ function doGet(e)
         .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
         .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
-
-/**
- * Routing-Layer für POST-Anfragen von GitHub Pages
- */
-function doPost(e) 
-{
-    try 
-    {
-        // 1. JSON-Payload aus dem Request parsen
-        const body = JSON.parse(e.postData.contents);
-        const action = body.action;
-        
-        let result;
-
-        // 2. Routing: Welche Funktion soll ausgeführt werden?
-        switch (action) 
-        {
-            case 'getInitialAppData':
-                result = getInitialAppData();
-                break;
-                
-            case 'saveLiveScores':
-                result = saveLiveScores(body.payload || body);
-                break;
-
-            case 'verifyPlayerPin':
-                result = verifyPlayerPin(body.spielerId, body.pin);
-                break;
-                
-            case 'changePlayerPinServer':
-                result = changePlayerPinServer(body.spielerId, body.newPin);
-                break;
-                
-            case 'savePlayerServer':
-                result = savePlayerServer(body);
-                break;
-
-            case 'deletePlayerServer':
-                result = deletePlayerServer(body.spielerId);
-                break;
-
-            case 'setPlayerPin':
-                result = setPlayerPin(body.spielerId, body.pin, body.mustChange);
-                break;
-                
-            case 'clearTestDataBase':
-                result = clearTestDataBase();
-                break;
-                
-            case 'cancelSpieltagServer':
-                result = cancelSpieltagServer(body.spieltagId);
-                break;
-                
-            case 'closeSpieltagServer':
-                result = closeSpieltagServer(body.spieltagId, body.bruttoSieger, body.nettoSieger, body.handicapUpdates);
-                break;
-                
-            case 'createNewSpieltag':
-                result = createNewSpieltag(body.spieltagObj, body.flightsPayload);
-                break;
-                
-            case 'getLiveScoreUpdates':
-                result = getLiveScoreUpdates(body.spieltagId);
-                break;
-
-            default:
-                throw new Error("Unbekannte Action: " + action);
-        }
-
-        // 3. Antwort als JSON zurückgeben (mit CORS-Headern)
-        return ContentService.createTextOutput(JSON.stringify({ success: true, ...result }))
-            .setMimeType(ContentService.MimeType.JSON)
-            .setHeader("Access-Control-Allow-Origin", "*");
-    } 
-    catch (err) 
-    {
-        // Fehlerbehandlung
-        return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.message }))
-            .setMimeType(ContentService.MimeType.JSON)
-            .setHeader("Access-Control-Allow-Origin", "*");
-    }
-}
-
-/**
- * CORS Preflight Handler
- */
-function doOptions(e) 
-{
-    return ContentService.createTextOutput("")
-        .setMimeType(ContentService.MimeType.TEXT)
-        .setHeader("Access-Control-Allow-Origin", "*")
-        .setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        .setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
-
-/**
- * Hilfsfunktion zum Laden der Konfiguration
- */
-function getSpreadsheetUrl(propertyName)
-{
-    const props = PropertiesService.getScriptProperties();
-    const url = props.getProperty(propertyName);
-    
-    if (!url)
-    {
-        throw new Error("Eigenschaft '" + propertyName + "' nicht gefunden!");
-    }
-    return url;
-}
-
 
 function include(filename)
 {
