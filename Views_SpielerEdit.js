@@ -1,4 +1,3 @@
-<script>
 // View: Spieler anlegen oder editieren
 app.views.spieler_edit = function(spielerId)
 {
@@ -95,4 +94,3 @@ app.views.spieler_edit = function(spielerId)
         </div>
     `;
 };
-</script>

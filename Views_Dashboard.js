@@ -1,4 +1,3 @@
-<script>
 // =========================================================================
 // BMAssistent / LIE Scorecard - Dashboard Ansicht
 // Views_Dashboard.html
@@ -235,4 +234,3 @@ app.views.dashboard = function()
         </div>
     `;
 };
-</script>

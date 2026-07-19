@@ -1,4 +1,3 @@
-<script>
 // Erweiterung des globalen app.views Namespaces für Flight-übergreifende Eingaben
 app.views.score_eingabe = function(spieltagId, holeNumber, targetFlightSeq)
 {
@@ -366,4 +365,3 @@ app.views.score_eingabe = function(spieltagId, holeNumber, targetFlightSeq)
         </div>
     `;
 };
-</script>

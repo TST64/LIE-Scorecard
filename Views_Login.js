@@ -1,4 +1,3 @@
-<script>
 // Kapselt die Login-Ansichten im app.views Namespace
 app.views.login = function()
 {
@@ -42,4 +41,3 @@ app.views.login = function()
         </div>
     `;
 };
-</script>

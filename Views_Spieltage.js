@@ -1,4 +1,3 @@
-<script>
 // =========================================================================
 // BMAssistent / LIE Scorecard - Runden & Planungs-Views
 // Views_Spieltage.html
@@ -205,4 +204,4 @@ app.views.spieltag_neu = function()
         </div>
     `;
 };
-</script>
+

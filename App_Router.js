@@ -1,4 +1,4 @@
-<script>
+
 // =========================================================================
 // BMAssistent / LIE Scorecard - Router-Komponente mit Auto-Safe Guard
 // App_Router.html
@@ -145,4 +145,3 @@ app.router =
         }
     }
 };
-</script>

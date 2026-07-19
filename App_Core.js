@@ -1,4 +1,4 @@
-<script>
+
 // =========================================================================
 // BMAssistent / LIE Scorecard - Globaler Anwendungs-State
 // App_Core.html
@@ -29,4 +29,3 @@ app.state =
     pollingIntervalId: null, // Hält die ID des laufenden window.setInterval
     currentPollingRate: 60   // Standard-Takt (wird dynamisch vom Server überschrieben)
 };
-</script>

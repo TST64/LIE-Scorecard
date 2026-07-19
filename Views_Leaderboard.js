@@ -1,4 +1,3 @@
-<script>
 app.views.leaderboard = function(spieltagId, activeTab)
 {
     if (!app.state.leaderboardViewMode) app.state.leaderboardViewMode = 'matrix';
@@ -273,4 +272,3 @@ app.views.leaderboard = function(spieltagId, activeTab)
         </div>
     `;
 };
-</script>

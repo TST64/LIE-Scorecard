@@ -1,4 +1,3 @@
-<script>
 // =========================================================================
 // BMAssistent / LIE Scorecard - Anwendungslogik
 // App_Logic_Core.html
@@ -1644,4 +1643,4 @@ app.logicGAS =
     }
 
 };
-</script>
+
