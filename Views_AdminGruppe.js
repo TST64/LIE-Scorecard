@@ -1,4 +1,4 @@
-<script>
+
 // View: Gruppe & Handicap-Verwaltung
 app.views.spieler_liste = function()
 {
@@ -58,4 +58,3 @@ app.views.spieler_liste = function()
         </div>
     `;
 };
-</script>

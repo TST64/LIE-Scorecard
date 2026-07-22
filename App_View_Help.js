@@ -1,6 +1,6 @@
 <!-- Ansicht für das Handbuch und User Manual -->
 <!-- App_View_Help.html -->
-<script>
+
 app.views.help = function()
 {
     return `
@@ -96,4 +96,3 @@ app.views.help = function()
         </div>
     `;
 };
-</script>

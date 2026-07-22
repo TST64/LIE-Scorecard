@@ -1,4 +1,4 @@
-<script>
+
 // =========================================================================
 // BMAssistent / LIE Scorecard - Startup Bootstrapper
 // App_Start.html
@@ -104,4 +104,3 @@ document.addEventListener("DOMContentLoaded", function()
         app.onDataLoaded({ success: false, error: "Keine Google Apps Script Umgebung erkannt (Lokal-Modus)." });
     }
 });
-</script>

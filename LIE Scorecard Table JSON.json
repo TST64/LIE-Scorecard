@@ -1,0 +1,419 @@
+[
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "name",
+      "nickname",
+      "email",
+      "teeColor",
+      "hcpOfficial",
+      "hcpLIE",
+      "role"
+    ],
+    "tabName": "adm_Spieler",
+    "sheetName": "LIEScoreCard_ADMIN",
+    "data": [
+      [
+        101,
+        "Thomas Stockhinger",
+        "stocki",
+        "thomas@example.com",
+        "Gelb",
+        14.2,
+        12,
+        "Admin"
+      ],
+      [
+        102,
+        "Heiko I",
+        "Heiko",
+        "heiko@example.com",
+        "Gelb",
+        18,
+        16,
+        "Spielleiter"
+      ],
+      [
+        103,
+        "Veto Golf",
+        "Veto",
+        "veto@example.com",
+        "Gelb",
+        22.5,
+        20,
+        "Spieler"
+      ],
+      [
+        104,
+        "Sammy Davis",
+        "Sammy",
+        "sammy@example.com",
+        "Rot",
+        28,
+        26,
+        "Spieler"
+      ],
+      [
+        105,
+        "Emily Fairway",
+        "Emily",
+        "emily@example.com",
+        "Orange",
+        36,
+        32,
+        "Spieler"
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1PmAhXwOJVVUAMvCNWCaNhmnoUeMM_xiK74mPXh8wi1g/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "spielerId",
+      "hash",
+      "salt",
+      "createdAt"
+    ],
+    "tabName": "adm_Pin",
+    "sheetName": "LIEScoreCard_ADMIN",
+    "data": [
+      [
+        101,
+        "jbZy3MdkkEe8RwZnHEt0LloYJBJx7PU2ajiCQLlbla0=",
+        "aebd010c-d808-444b-9ba4-1894e3bf043e",
+        "Sun Nov 02 2025 17:44:58 GMT+0100 (Mitteleuropäische Normalzeit)"
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1PmAhXwOJVVUAMvCNWCaNhmnoUeMM_xiK74mPXh8wi1g/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "token",
+      "spielerId",
+      "issuedAt",
+      "expiresAt",
+      "revoked"
+    ],
+    "tabName": "adm_Token",
+    "sheetName": "LIEScoreCard_ADMIN",
+    "data": [
+      [
+        "nPP31OIaZhWccvKcUTexh_rwMRpEFc2lKGunJkp-qCk=",
+        101,
+        "Sun Nov 02 2025 17:45:09 GMT+0100 (Mitteleuropäische Normalzeit)",
+        "Tue Dec 02 2025 17:45:09 GMT+0100 (Mitteleuropäische Normalzeit)",
+        false
+      ],
+      [
+        "b_0EhCOXFj_Y1GeShFwf6llrcG84gEhJGWeG9wA9e00=",
+        101,
+        "Sun Nov 02 2025 17:46:17 GMT+0100 (Mitteleuropäische Normalzeit)",
+        "Tue Dec 02 2025 17:46:17 GMT+0100 (Mitteleuropäische Normalzeit)",
+        false
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1PmAhXwOJVVUAMvCNWCaNhmnoUeMM_xiK74mPXh8wi1g/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "ts",
+      "actorId",
+      "action",
+      "metaJson"
+    ],
+    "tabName": "adm_Audit",
+    "data": [],
+    "sheetName": "LIEScoreCard_ADMIN",
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1PmAhXwOJVVUAMvCNWCaNhmnoUeMM_xiK74mPXh8wi1g/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "name",
+      "location"
+    ],
+    "tabName": "ref_Golfplätze",
+    "sheetName": "LIE_ScoreCard_REFERENCES",
+    "data": [
+      [
+        "PL001",
+        "Bremer Schweiz",
+        "Schwanewede, NI"
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1vcGyKusm8joOn3Zsp6dgqckH74njN6ydJohK2KB60w0/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "platzId",
+      "name"
+    ],
+    "tabName": "ref_GolfplatzKurse",
+    "sheetName": "LIE_ScoreCard_REFERENCES",
+    "data": [
+      [
+        "PL001-K1",
+        "PL001",
+        "18‑Loch Kurs A"
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1vcGyKusm8joOn3Zsp6dgqckH74njN6ydJohK2KB60w0/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "kursId",
+      "nr",
+      "par",
+      "si"
+    ],
+    "tabName": "ref_KursBahnen",
+    "sheetName": "LIE_ScoreCard_REFERENCES",
+    "data": [
+      [
+        "H01",
+        "PL001-K1",
+        1,
+        3,
+        10
+      ],
+      [
+        "H02",
+        "PL001-K1",
+        2,
+        4,
+        2
+      ],
+      [
+        "H03",
+        "PL001-K1",
+        3,
+        3,
+        18
+      ],
+      [
+        "H04",
+        "PL001-K1",
+        4,
+        4,
+        6
+      ],
+      [
+        "H05",
+        "PL001-K1",
+        5,
+        5,
+        14
+      ],
+      [
+        "H06",
+        "PL001-K1",
+        6,
+        4,
+        4
+      ],
+      [
+        "H07",
+        "PL001-K1",
+        7,
+        3,
+        12
+      ],
+      [
+        "H08",
+        "PL001-K1",
+        8,
+        4,
+        8
+      ],
+      [
+        "H09",
+        "PL001-K1",
+        9,
+        3,
+        16
+      ],
+      [
+        "H10",
+        "PL001-K1",
+        10,
+        5,
+        9
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1vcGyKusm8joOn3Zsp6dgqckH74njN6ydJohK2KB60w0/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "kursId",
+      "teeColor",
+      "slope",
+      "cr",
+      "parSum",
+      "method"
+    ],
+    "tabName": "ref_KursHandicap",
+    "sheetName": "LIE_ScoreCard_REFERENCES",
+    "data": [
+      [
+        "PL001-K1",
+        "Weiß",
+        130,
+        72.4,
+        68,
+        "table"
+      ],
+      [
+        "PL001-K1",
+        "Gelb",
+        125,
+        71,
+        68,
+        "table"
+      ],
+      [
+        "PL001-K1",
+        "Rot",
+        118,
+        70,
+        68,
+        "table"
+      ],
+      [
+        "PL001-K1",
+        "Orange",
+        115,
+        69,
+        68,
+        "table"
+      ],
+      [
+        "PL001-K1",
+        "Blau",
+        110,
+        68,
+        68,
+        "table"
+      ]
+    ],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1vcGyKusm8joOn3Zsp6dgqckH74njN6ydJohK2KB60w0/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "date",
+      "kursId",
+      "status",
+      "teilnehmerCsv",
+      "bruttoSieger",
+      "nettoSieger"
+    ],
+    "tabName": "app_Spieltage",
+    "sheetName": "LIEScoreCard_APPLICATION",
+    "data": [],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1I4ZcnxSGe1Zpr_08SaKa__OMKzLzSrraPgEo4bbmisQ/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "spieltagId",
+      "spielerIdsCsv"
+    ],
+    "tabName": "app_Flights",
+    "data": [],
+    "sheetName": "LIEScoreCard_APPLICATION",
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1I4ZcnxSGe1Zpr_08SaKa__OMKzLzSrraPgEo4bbmisQ/edit?gid=0#gid=0"
+  },
+  {
+    "headerTypes": [
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string",
+      "string"
+    ],
+    "headers": [
+      "id",
+      "spieltagId",
+      "flightSeq",
+      "spielerId",
+      "hole",
+      "strokes",
+      "strokesGiven"
+    ],
+    "tabName": "app_ScoreCards",
+    "sheetName": "LIEScoreCard_APPLICATION",
+    "data": [],
+    "sheetUrl": "https://docs.google.com/spreadsheets/d/1I4ZcnxSGe1Zpr_08SaKa__OMKzLzSrraPgEo4bbmisQ/edit?gid=0#gid=0"
+  }
+]

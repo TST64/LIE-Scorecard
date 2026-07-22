@@ -4,25 +4,21 @@
  * BSD (Allman) Style
  */
 
-function doGet(e)
-{
-    return HtmlService.createTemplateFromFile('Index')
-        .evaluate()
-        .setTitle('LIE Scorecard')
-        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-/**
- * Routing-Layer für POST-Anfragen von GitHub Pages
- */
-function doPost(e) 
+function doGet(e) 
 {
     try 
     {
-        // 1. JSON-Payload aus dem Request parsen
-        const body = JSON.parse(e.postData.contents);
+        // Prüfen, ob Daten da sind
+        if (!e || !e.parameter || !e.parameter.data)
+        {
+            return ContentService.createTextOutput("Backend aktiv. API bereit.")
+                .setMimeType(ContentService.MimeType.TEXT);
+        }
+
+        // 1. JSON-Payload aus dem GET-Parameter "data" parsen
+        const body = JSON.parse(e.parameter.data);
         const action = body.action;
+        const callback = e.parameter.callback;
         
         let result;
 
@@ -81,52 +77,144 @@ function doPost(e)
                 throw new Error("Unbekannte Action: " + action);
         }
 
-        // 3. Antwort als JSON zurückgeben (mit CORS-Headern)
-        return ContentService.createTextOutput(JSON.stringify({ success: true, ...result }))
-            .setMimeType(ContentService.MimeType.JSON)
-            .setHeader("Access-Control-Allow-Origin", "*");
+        const jsonResponse = JSON.stringify({ success: true, ...result });
+
+        // Wenn ein Callback mitgeliefert wurde, antworten wir im JSONP-Format
+        if (callback)
+        {
+            return ContentService.createTextOutput(callback + "(" + jsonResponse + ")")
+                .setMimeType(ContentService.MimeType.JAVASCRIPT);
+        }
+
+        return ContentService.createTextOutput(jsonResponse)
+            .setMimeType(ContentService.MimeType.JSON);
     } 
     catch (err) 
     {
-        // Fehlerbehandlung
-        return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.message }))
-            .setMimeType(ContentService.MimeType.JSON)
-            .setHeader("Access-Control-Allow-Origin", "*");
+        const errorResponse = JSON.stringify({ success: false, error: err.message });
+        
+        if (e && e.parameter && e.parameter.callback)
+        {
+            return ContentService.createTextOutput(e.parameter.callback + "(" + errorResponse + ")")
+                .setMimeType(ContentService.MimeType.JAVASCRIPT);
+        }
+
+        return ContentService.createTextOutput(errorResponse)
+            .setMimeType(ContentService.MimeType.JSON);
     }
 }
 
-/**
- * CORS Preflight Handler
- */
+function doPost(e) 
+{
+    // Weiterleitung an doGet, falls doch mal ein POST reinkommt
+    return doGet(e);
+}
+
 function doOptions(e) 
 {
-    return ContentService.createTextOutput("")
-        .setMimeType(ContentService.MimeType.TEXT)
-        .setHeader("Access-Control-Allow-Origin", "*")
-        .setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        .setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return ContentService.createTextOutput("OK")
+        .setMimeType(ContentService.MimeType.TEXT);
 }
 
 /**
- * Hilfsfunktion zum Laden der Konfiguration
+ * Konvertiert eine Tabelle in JSON, optional gefiltert nach einer Spalte und einem Wert.
+ * Inklusive Datums-Bereinigung und CSV-Rettungsanker.
  */
-function getSpreadsheetUrl(propertyName)
+function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
 {
-    const props = PropertiesService.getScriptProperties();
-    const url = props.getProperty(propertyName);
-    
-    if (!url)
+    if (!sheet) return [];
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    return rows.map(function(row) 
     {
-        throw new Error("Eigenschaft '" + propertyName + "' nicht gefunden!");
-    }
-    return url;
+        const obj = {};
+        headers.forEach(function(header, index) 
+        {
+            let val = row[index];
+            
+            // Datums-Bereinigung
+            if (val instanceof Date) 
+            {
+                val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd");
+            }
+            
+            // CSV-Rettungsanker
+            if ((header === "teilnehmerCsv" || header === "spielerIdsCsv") && val) 
+            {
+                let cleanStr = String(val).trim();
+                if (cleanStr !== "" && !cleanStr.includes(",") && /^\d+$/.test(cleanStr) && cleanStr.length > 3) 
+                {
+                    val = cleanStr.match(/.{1,3}/g).join(",");
+                } 
+                else 
+                {
+                    val = cleanStr;
+                }
+            }
+            obj[header] = val;
+        });
+        return obj;
+    }).filter(function(item) 
+    {
+        return filterCol === null || String(item[filterCol]).trim() === String(filterVal).trim();
+    });
 }
 
-
-function include(filename)
+/**
+ * Löscht alle Datensätze aus app_Spieltage, app_Flights und app_ScoreCards.
+ * Die Header-Zeilen (Zeile 1) bleiben dabei strikt erhalten.
+ */
+function clearTestDataBase()
 {
-    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+    Logger.log("=== START: DATENBANK-RESET FOR TESTING (CLEAR CONTENT MODE) ===");
+    try
+    {
+        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
+        const tablesToClear = ["app_Spieltage", "app_Flights", "app_ScoreCards"];
+        
+        tablesToClear.forEach(function(sheetName)
+        {
+            const sheet = ssApp.getSheetByName(sheetName);
+            if (!sheet)
+            {
+                Logger.log(`Hinweis: Blatt '${sheetName}' wurde nicht gefunden.`);
+                return;
+            }
+            
+            const lastRow = sheet.getLastRow();
+            const lastColumn = sheet.getLastColumn();
+            
+            if (lastRow > 1)
+            {
+                const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
+                dataRange.clearContent();
+                Logger.log(`Tabelle '${sheetName}': Daten erfolgreich geleert.`);
+            }
+            else
+            {
+                Logger.log(`Tabelle '${sheetName}': War bereits leer.`);
+            }
+        });
+        
+        SpreadsheetApp.flush();
+        Logger.log("=== ERFOLG: Datenbank komplett geleert! ===");
+        return { success: true };
+    }
+    catch (err)
+    {
+        Logger.log("FEHLER beim Zurücksetzen der Datenbank: " + err.toString());
+        return { success: false, error: err.toString() };
+    }
 }
+
+// ==========================================
+// CORE API-FUNKTIONEN
+// ==========================================
 
 function getInitialAppData()
 {
@@ -134,7 +222,6 @@ function getInitialAppData()
     try
     {
         debugLog.push("Verbinde mit Spreadsheets über Projekteigenschaften...");
-        // Dynamischer Abruf statt harter URLs
         const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
         const ssRef = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssRef"));
         const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
@@ -192,6 +279,7 @@ function getInitialAppData()
         };
     }
 }
+
 function saveLiveScores(scoresArray)
 {
     try
@@ -209,37 +297,11 @@ function saveLiveScores(scoresArray)
             return { success: false, error: "Tabelle 'app_ScoreCards' wurde nicht gefunden." };
         }
 
-        // Gesamten aktuellen Tabelleninhalt laden
-        let data = tScores.getDataRange().getValues();
-        let headers = data[0];
-        
-        // Falls Tabelle komplett neu ist, Header mit den neuen Spalten initialisieren
-        if (data.length === 1 && data[0][0] === "")
+        // Mappt jetzt alle 9 Spalten inklusive lady und puts auf das Sheet-Format
+        const rowsToAppend = scoresArray.map(function(item)
         {
-            headers = ["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts"];
-            tScores.getRange(1, 1, 1, 9).setValues([headers]);
-            data = [headers];
-        }
-
-        // Map für schnellen Zeilenzugriff anhand der ID aufbauen
-        const idRowMap = {};
-        for (let i = 1; i < data.length; i++)
-        {
-            const rowId = String(data[i][0]).trim();
-            if (rowId)
-            {
-                idRowMap[rowId] = i + 1; // Zeilenindex im Sheet (1-basiert)
-            }
-        }
-
-        // Neue oder zu aktualisierende Daten verarbeiten
-        scoresArray.forEach(function(item)
-        {
-            const uniqueId = String(item.id).trim();
-            
-            // Formatierung des Zeilen-Arrays (Länge: 9 Spalten)
-            const rowValues = [
-                uniqueId,
+            return [
+                String(item.id).trim(),
                 String(item.spieltagId).trim(),
                 parseInt(item.flightSeq) || 1,
                 String(item.spielerId).trim(),
@@ -249,23 +311,19 @@ function saveLiveScores(scoresArray)
                 item.lady ? "TRUE" : "FALSE",
                 parseInt(item.puts) !== undefined ? parseInt(item.puts) : 2
             ];
-
-            const bestehendeZeile = idRowMap[uniqueId];
-            if (bestehendeZeile)
-            {
-                // Existiert bereits -> Überschreiben! (Verhindert doppelte Einträge)
-                tScores.getRange(bestehendeZeile, 1, 1, 9).setValues([rowValues]);
-            }
-            else
-            {
-                // Neu -> Anhängen!
-                tScores.appendRow(rowValues);
-                // Map aktualisieren, falls im selben Payload Dubletten stecken
-                idRowMap[uniqueId] = tScores.getLastRow();
-            }
         });
 
+        let lastRow = tScores.getLastRow();
+        if (lastRow === 0)
+        {
+            tScores.appendRow(["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts"]);
+            lastRow = 1;
+        }
+        
+        // Bereich erweitert auf 9 Spalten Breite
+        tScores.getRange(lastRow + 1, 1, rowsToAppend.length, 9).setValues(rowsToAppend);
         SpreadsheetApp.flush();
+
         return { success: true };
     }
     catch (err)
@@ -345,76 +403,50 @@ function updatePlayerHandicap(spielerId, newHcpOfficial, newHcpLie)
     }
 }
 
-function setPlayerPin(spielerId, rawPin, isFirstLogin)
+function setPlayerPin(spielerId, newPin, isFirstLogin) 
 {
-    try
+    try 
     {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        const spielerData = tSpieler.getDataRange().getValues();
-
-        // === SERVER-SEITIGER CHECK (Nur prüfen, wenn es KEIN neuer Spieler bei der Registrierung ist) ===
-        if (rawPin === "4722" && isFirstLogin === false)
-        {
-            const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
-            let actingUserRole = "";
-            for (let i = 1; i < spielerData.length; i++)
-            {
-                if (String(spielerData[i][3]).trim().toLowerCase() === activeUserEmail)
-                {
-                    actingUserRole = String(spielerData[i][7]).trim();
-                    break;
-                }
-            }
-            if (actingUserRole !== "Admin")
-            {
-                return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen PINs zurücksetzen." };
-            }
+        // Validierung der ID, damit niemals wieder #NUM! reingeschrieben wird
+        const cleanId = parseInt(spielerId);
+        if (isNaN(cleanId) || cleanId <= 0) {
+            throw new Error("Ungültige Spieler-ID übergeben: " + spielerId);
         }
-        // ==============================================================================================
 
+        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
         const tPin = ssAdmin.getSheetByName("adm_Pin");
         if (!tPin) return { success: false, error: "Tabelle 'adm_Pin' nicht gefunden." };
 
-        const salt = String(Utilities.getUuid()).trim();
-        const cleanPin = String(rawPin).trim();
-        
-        const combinedInput = cleanPin + salt;
+        const data = tPin.getDataRange().getValues();
+        const salt = Utilities.getUuid();
+        const combinedInput = String(newPin).trim() + salt;
         const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
         const hash = Utilities.base64Encode(digest);
-        const timestamp = new Date().toString();
         
-        const forceChange = (isFirstLogin !== undefined) ? isFirstLogin : (cleanPin === "4722");
+        const timestamp = new Date().toString();
+        const flagFirstLogin = isFirstLogin ? true : false;
 
-        const data = tPin.getDataRange().getValues();
-        let spielerZeile = -1;
-
-        for (let i = 1; i < data.length; i++)
+        // Suchen, ob der Spieler schon existiert (um ID-Duplikate zu vermeiden)
+        for (let i = 1; i < data.length; i++) 
         {
-            if (parseInt(data[i][0]) === parseInt(spielerId))
+            if (parseInt(data[i][0]) === cleanId) 
             {
-                spielerZeile = i + 1;
-                break;
+                // Aktualisieren statt neu anlegen
+                tPin.getRange(i + 1, 2).setValue(hash);
+                tPin.getRange(i + 1, 3).setValue(salt);
+                tPin.getRange(i + 1, 4).setValue(timestamp);
+                tPin.getRange(i + 1, 5).setValue(flagFirstLogin);
+                return { success: true };
             }
         }
 
-        if (spielerZeile !== -1)
-        {
-            tPin.getRange(spielerZeile, 2).setValue(hash);
-            tPin.getRange(spielerZeile, 3).setValue(salt);
-            tPin.getRange(spielerZeile, 4).setValue(timestamp);
-            tPin.getRange(spielerZeile, 5).setValue(forceChange ? "TRUE" : "FALSE");
-        }
-        else
-        {
-            tPin.appendRow([parseInt(spielerId), hash, salt, timestamp, forceChange ? "TRUE" : "FALSE"]);
-        }
-
-        SpreadsheetApp.flush();
+        // Falls er nicht existiert: Sauber als neue Zeile anhängen
+        tPin.appendRow([cleanId, hash, salt, timestamp, flagFirstLogin]);
         return { success: true };
-    }
-    catch (err)
+    } 
+    catch (err) 
     {
+        Logger.log("[setPlayerPin Error] " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
@@ -428,7 +460,7 @@ function verifyPlayerPin(spielerId, enteredPin)
         
         if (!tPin) return { success: false, error: "Sicherheits-Tabelle 'adm_Pin' wurde nicht gefunden." };
 
-        const data = tPin.getDataRange().getValues();
+        let data = tPin.getDataRange().getValues();
         let dbRecord = null;
 
         for (let i = 1; i < data.length; i++)
@@ -444,7 +476,22 @@ function verifyPlayerPin(spielerId, enteredPin)
             }
         }
 
-        if (!dbRecord) return { success: false, error: "Für diesen Spieler wurde noch keine PIN festgelegt." };
+        // Rettungsanker ohne Selbstaufruf: Direkt hier anlegen und verarbeiten
+        if (!dbRecord) 
+        {
+            Logger.log(`[PIN Guard] Keine PIN für Spieler ID ${spielerId} gefunden. Erzeuge Standard-PIN 4722...`);
+            setPlayerPin(spielerId, "4722", true);
+            
+            // Wenn die eingegebene PIN die 4722 ist, lassen wir ihn sofort durch zum Ändern
+            if (String(enteredPin).trim() === "4722")
+            {
+                return { success: true, mustChange: true };
+            }
+            else
+            {
+                return { success: false, error: "Initial-PIN generiert. Bitte verwende '4722' für den ersten Login." };
+            }
+        }
 
         const cleanEnteredPin = String(enteredPin).trim();
         const combinedInput = cleanEnteredPin + dbRecord.salt;
@@ -471,10 +518,6 @@ function changePlayerPinServer(spielerId, newPin)
     return setPlayerPin(spielerId, newPin, false);
 }
 
-/**
- * Beendet den Spieltag offiziell, friert die Sieger ein und aktualisiert
- * automatisch die berechneten LIE-Handicaps der Teilnehmer in 'adm_Spieler'.
- */
 function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpdatesArray)
 {
     try
@@ -487,7 +530,6 @@ function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpda
             return { success: false, error: "Tabelle 'app_Spieltage' wurde nicht gefunden." };
         }
 
-        // 1. Spieltag-Status auf "Beendet" setzen
         const dataSpieltage = tSpieltage.getDataRange().getValues();
         let zeileSpieltag = -1;
 
@@ -509,7 +551,6 @@ function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpda
         tSpieltage.getRange(zeileSpieltag, 6).setValue(bruttoSieger);
         tSpieltage.getRange(zeileSpieltag, 7).setValue(nettoSieger);
 
-        // 2. Automatische Handicap-Updates in 'adm_Spieler' schreiben
         if (handicapUpdatesArray && handicapUpdatesArray.length > 0)
         {
             const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
@@ -532,7 +573,6 @@ function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpda
 
                     if (zeileSpieler !== -1)
                     {
-                        // Spalte G (Index 7) ist das 'hcpLIE' in der Tabelle
                         tSpieler.getRange(zeileSpieler, 7).setValue(parseInt(update.newHcpLie));
                     }
                 });
@@ -561,28 +601,22 @@ function savePlayerServer(spielerObj)
         }
 
         const data = tSpieler.getDataRange().getValues();
-        
-        // === NEU: SERVER-SEITIGER SICHERHEITS-CHECK ===
-        // Wir ermitteln die E-Mail des aktuell angemeldeten Google-Nutzers
         const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
         
-        // Wir suchen den agierenden Nutzer in der Master-Tabelle
         let actingUserRole = "";
         for (let i = 1; i < data.length; i++)
         {
-            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail) // Spalte 4 ist die E-Mail
+            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail)
             {
-                actingUserRole = String(data[i][7]).trim(); // Spalte 8 ist die Rolle
+                actingUserRole = String(data[i][7]).trim();
                 break;
             }
         }
         
-        // Wenn der Nutzer kein Admin ist, wird die Aktion rigoros abgelehnt!
         if (actingUserRole !== "Admin")
         {
             return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spielerprofile anlegen oder bearbeiten." };
         }
-        // ==============================================
 
         let zeile = -1;
         for (let i = 1; i < data.length; i++)
@@ -628,6 +662,7 @@ function savePlayerServer(spielerObj)
         return { success: false, error: err.toString() };
     }
 }
+
 function deletePlayerServer(spielerId)
 {
     try
@@ -636,7 +671,6 @@ function deletePlayerServer(spielerId)
         const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
         const data = tSpieler.getDataRange().getValues();
 
-        // === SERVER-SEITIGER CHECK ===
         const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
         let actingUserRole = "";
         for (let i = 1; i < data.length; i++)
@@ -651,7 +685,6 @@ function deletePlayerServer(spielerId)
         {
             return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spieler löschen." };
         }
-        // =============================
 
         let zeile = -1;
         for (let i = 1; i < data.length; i++)
@@ -693,10 +726,6 @@ function deletePlayerServer(spielerId)
     }
 }
 
-
-/**
- * Setzt den Status eines Spieltags im Sheet auf "Abgebrochen".
- */
 function cancelSpieltagServer(spieltagId)
 {
     try
@@ -726,9 +755,7 @@ function cancelSpieltagServer(spieltagId)
             return { success: false, error: "Spieltag nicht in der Datenbank gefunden." };
         }
 
-        // Spalte D ist der status (Index 4 -> getRange verlangt Spaltenindex 4)
         tSpieltage.getRange(zeile, 4).setValue("Abgebrochen");
-        
         SpreadsheetApp.flush();
         return { success: true };
     }
@@ -738,32 +765,6 @@ function cancelSpieltagServer(spieltagId)
     }
 }
 
-/**
- * Holt die konfigurierte Polling-Rate (in Sekunden) aus den Script-Properties.
- * Fallback sind 60 Sekunden, falls nichts hinterlegt ist.
- */
-function getPollingRateProperty()
-{
-    try
-    {
-        const props = PropertiesService.getScriptProperties();
-        const rate = props.getProperty("pollingRate");
-        if (rate)
-        {
-            return parseInt(rate);
-        }
-    }
-    catch (err)
-    {
-        Logger.log("Fehler beim Lesen der pollingRate Eigenschaft: " + err.toString());
-    }
-    return 60; // Standard-Sicherheitsnetz
-}
-
-/**
- * Extrem ressourcenschonender Live-Kanal für das automatische Polling.
- * Lädt ausschließlich die aktuellen Scores des Spieltags.
- */
 function getLiveScoreUpdates(spieltagId)
 {
     try
@@ -777,8 +778,6 @@ function getLiveScoreUpdates(spieltagId)
         }
 
         const allScores = getSheetDataAsJson(tScoreCards);
-        
-        // Filtere nur die Scores, die wirklich zu diesem Spieltag gehören
         const filteredScores = allScores.filter(function(sc)
         {
             return String(sc.spieltagId).trim() === String(spieltagId).trim();
@@ -798,3 +797,35 @@ function getLiveScoreUpdates(spieltagId)
     }
 }
 
+// ==========================================
+// GLOBALE HILFSFUNKTIONEN (OHNE DUPLIKATE)
+// ==========================================
+
+function getSpreadsheetUrl(key)
+{
+    const props = PropertiesService.getScriptProperties();
+    const url = props.getProperty(key);
+    if (!url) 
+    {
+        throw new Error("Die Skripteigenschaft '" + key + "' (Spreadsheet-URL) ist nicht konfiguriert!");
+    }
+    return url;
+}
+
+function getPollingRateProperty()
+{
+    try
+    {
+        const props = PropertiesService.getScriptProperties();
+        const rate = props.getProperty("pollingRate");
+        if (rate)
+        {
+            return parseInt(rate);
+        }
+    }
+    catch (err)
+    {
+        Logger.log("Fehler beim Lesen der pollingRate Eigenschaft: " + err.toString());
+    }
+    return 60; 
+}

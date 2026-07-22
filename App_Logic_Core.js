@@ -4,7 +4,6 @@
 // BSD (Allman) Style
 // =========================================================================
 
-
 /**
  * BRIDGE-LAYER
  * Leitet alle alten 'google.script.run' Aufrufe auf das neue API-Gateway um.
@@ -14,15 +13,9 @@ window.google.script = {
     run: {
         withSuccessHandler: function(cb) { this.successCb = cb; return this; },
         withFailureHandler: function(cb) { this.failureCb = cb; return this; },
-        // Hier werden alle alten Funktionsaufrufe abgefangen
-        // Beispiel: .saveLiveScores(data) wird zu Action 'saveLiveScores'
         __call: function(action, args) {
-            console.log(`[BRIDGE] Weiterleitung an API: ${action}`); // <-- Debugging
+            console.log(`[BRIDGE] Weiterleitung an API: ${action}`);
             const payload = args.length > 0 ? args[0] : {};
-            
-            // Wenn es sich um Funktionen handelt, die kein "payload" als erstes Argument haben,
-            // müssen wir die Argumente hier eventuell anpassen. 
-            // Aber bei deinem Code sieht alles nach einem Objekt-Payload aus!
             
             app.logic.apiRequest(action, payload).then(res => {
                 if (res.success) { 
@@ -46,58 +39,109 @@ google.script.run = new Proxy(google.script.run, {
 });
 
 
-
-// In App_Logic_Core.html
+// =========================================================================
+// KONSOLIDIERTE ANWENDUNGSLOGIK (app.logic)
+// =========================================================================
 app.logic = 
 {
-    // Die neue API-Schnittstelle
-    apiRequest: async function(action, payload = {})
+    // Die neue API-Schnittstelle über JSONP (HTTP GET)
+    apiRequest: function(action, payload = {})
     {
-        const API_URL = "https://script.google.com/macros/s/AKfycbyeo7zSNQTOWp6arz-iU2dklZvZ3ii_GkYJkfZV_uklxSyVEUgH5SuUNekhxJ_EHx6TNg/exec";
-        
-        // UX: Zeige globalen Loading-Indikator, falls gewünscht
+        //const API_URL = "https://script.google.com/macros/s/AKfycbwBQMtEpIpYAhmcNP6nLvSeNZAyTzW_IVuuaZha9yuf3PAa0v1OjUokySCLSYaWR0YhTA/exec";
+        const API_URL = "https://script.google.com/macros/s/AKfycbzdMHzJ_Sl4lkgZgMo7q2k4j0iAzoGLE2AutrlctXFU/dev";
         console.log(`[API Request] Action: ${action}`);
 
-        try
+        return new Promise((resolve, reject) => 
         {
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                mode: 'cors', // Aktiviert CORS für dein GitHub Pages Setup
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: action, ...payload })
-            });
-
-            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+            const callbackName = "gas_callback_" + Math.random().toString(36).substring(2, 15);
             
-            return await response.json();
-        }
-        catch (error)
+            window[callbackName] = function(data) 
+            {
+                document.body.removeChild(script);
+                delete window[callbackName];
+                resolve(data);
+            };
+
+            const dataPayload = JSON.stringify({ action: action, ...payload });
+            const finalUrl = `${API_URL}?callback=${callbackName}&data=${encodeURIComponent(dataPayload)}`;
+
+            const script = document.createElement("script");
+            script.src = finalUrl;
+            script.onerror = function() 
+            {
+                document.body.removeChild(script);
+                delete window[callbackName];
+                console.error("[API Error] JSONP-Request fehlgeschlagen.");
+                app.logic.showToast("Server-Verbindungsfehler", "error");
+                resolve({ success: false, error: "Verbindungsfehler" });
+            };
+
+            document.body.appendChild(script);
+        });
+    },
+
+    // Globaler Daten-Refresh im Hintergrund über die neue JSONP-API
+    refreshGlobalAppData: async function()
+    {
+        const icon = document.getElementById('global-refresh-icon');
+        const btn = document.getElementById('global-refresh-btn');
+        
+        if (btn && icon)
         {
-            console.error("[API Error]", error);
-            app.logic.showToast("Server-Verbindungsfehler", "error");
-            return { success: false, error: error.message };
+            btn.disabled = true;
+            icon.classList.add('fa-spin');
+        }
+
+        try 
+        {
+            const response = await app.logic.apiRequest('getInitialAppData');
+            if (response && response.success === true)
+            {
+                app.state.spieler = response.spieler || [];
+                app.state.golfplaetze = response.golfplaetze || [];
+                app.state.kurse = response.kurse || [];
+                app.state.bahnen = response.bahnen || [];
+                app.state.handicaps = response.handicaps || [];
+                app.state.spieltage = response.spieltage || [];
+                app.state.scoreCards = response.scoreCards || [];
+                app.state.flights = response.flights || [];
+
+                if (app.state.currentUser)
+                {
+                    const freshUserMatch = app.state.spieler.find(function(s) 
+                    { 
+                        return String(s.id).trim() === String(app.state.currentUser.id).trim(); 
+                    });
+                    
+                    if (freshUserMatch)
+                    {
+                        app.state.currentUser = freshUserMatch;
+                    }
+                }
+
+                app.router.updateNavigationUI(app.state.currentView);
+                app.logic.updateHeaderRoleIcon();
+                app.router.navigate(app.state.currentView);
+            }
+        } 
+        catch (err) 
+        {
+            console.error("Fehler beim Hintergrund-Refresh:", err);
+            app.logic.showToast("Daten konnten nicht aktualisiert werden. Offline?", "error");
+        }
+        finally 
+        {
+            setTimeout(function()
+            {
+                if (btn && icon)
+                {
+                    btn.disabled = false;
+                    icon.classList.remove('fa-spin');
+                }
+            }, 500);
         }
     },
 
-    // Beispiel für den Aufruf (Ersatz für google.script.run)
-    refreshGlobalAppData: async function()
-    {
-        const response = await app.logic.apiRequest('getInitialAppData');
-        if (response.success)
-        {
-            app.state.spieler = response.spieler || [];
-            // ... restliche States zuweisen
-            app.router.navigate(app.state.currentView);
-        }
-    }
-};
-
-//Die alte Business Logic bleibt asl app.logicGAS erhalten. 
-// sie nutzt die google.script.run funktion, die in der auf
-// GIT publizierten Version durcch den oben definierte BRIDGE Layer
-// simuliert wird.
-app.logicGAS = 
-{
     // Ermittelt die anteilige Spielvorgabe pro Loch basierend auf dem Stammblatt
     calculateHoleVorgabe: function(spieler, kursId, holeSi)
     {
@@ -107,7 +151,6 @@ app.logicGAS =
         let vorgabeMatch = hcpsForKurs.find(function(h) { return parseFloat(h.vorgabe) === hcp; });
         let spielvorgabeTotal = vorgabeMatch ? parseInt(vorgabeMatch.spielvorgabe) : Math.round(hcp);
 
-        // Verteilung der Vorgabenschläge auf die Schwierigkeit (Spielvorgabe / 18)
         let basisSchlaege = Math.floor(spielvorgabeTotal / 18);
         let restSchlaege = spielvorgabeTotal % 18;
         
@@ -127,7 +170,6 @@ app.logicGAS =
             return 0;
         }
         
-        // Persönliches Par für dieses Loch ermitteln
         let persoenlichesPar = parseInt(par) + parseInt(holeVorgabe);
         let differenz = persoenlichesPar - parseInt(strokes);
         
@@ -154,14 +196,12 @@ app.logicGAS =
 
         app.state.liveScores[key] = neuerScore;
 
-        // UI-Wert updaten
         const scoreEl = document.getElementById(`score-val-${spielerId}`);
         if (scoreEl) 
         {
             scoreEl.innerText = neuerScore;
         }
 
-        // Falls der Score manuell verändert wird, den "Strich" entfernen
         if (app.state.liveScores[maxScoreKey])
         {
             app.state.liveScores[maxScoreKey] = false;
@@ -177,7 +217,6 @@ app.logicGAS =
             }
         }
 
-        // Netto-Punkte direkt neu berechnen und Badge aktualisieren
         const nettoPkt = app.logic.calculateNettoStableford(neuerScore, par, spielvorgabe);
         const badgeEl = document.getElementById(`netto-badge-${spielerId}`);
         if (badgeEl) 
@@ -325,7 +364,6 @@ app.logicGAS =
             syncBtn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Sende...`;
         }
 
-        // Polling temporär stoppen, um Überschneidungen zu blockieren
         app.logic.stopLivePolling();
 
         const scoresPayload = [];
@@ -344,6 +382,7 @@ app.logicGAS =
             const scoreKey = `${spieltagId}_${spielerId}_${holeNr}`;
             const ladyKey = `${spieltagId}_${spielerId}_${holeNr}_lady`;
             const putsKey = `${spieltagId}_${spielerId}_${holeNr}_puts`;
+            const maxScoreKey = `${spieltagId}_${spielerId}_${holeNr}_maxscore`;
             
             let strokes = app.state.liveScores[scoreKey];
             if (strokes === undefined || strokes === null || strokes <= 0) return;
@@ -364,7 +403,8 @@ app.logicGAS =
                 strokes: parseInt(strokes),
                 strokesGiven: strokesGiven,
                 lady: !!app.state.liveScores[ladyKey],
-                puts: app.state.liveScores[putsKey] !== undefined ? parseInt(app.state.liveScores[putsKey]) : 2
+                puts: app.state.liveScores[putsKey] !== undefined ? parseInt(app.state.liveScores[putsKey]) : 2,
+                maxscore: !!app.state.liveScores[maxScoreKey]
             });
         });
 
@@ -375,18 +415,16 @@ app.logicGAS =
             return;
         }
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('saveLiveScores', scoresPayload)
+            .then(function(response)
             {
                 if (response && response.success)
                 {
-                    // Lokalen Cache der gesendeten Keys leeren
                     keysToSync.forEach(function(key)
                     {
                         delete app.state.liveScores[key];
                     });
 
-                    // Daten sauber in den Haupt-State mergen
                     scoresPayload.forEach(function(item)
                     {
                         const idx = app.state.scoreCards.findIndex(function(sc) { return sc.id === item.id; });
@@ -413,88 +451,38 @@ app.logicGAS =
                 }
                 app.logic.startLivePolling(spieltagId, null, flightSeq);
             })
-            .withFailureHandler(function(err)
+            .catch(function(err)
             {
                 console.error("Netzwerkfehler beim Sichern:", err);
                 if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Sichern`; }
                 app.logic.startLivePolling(spieltagId, null, flightSeq);
-            })
-            .saveLiveScores(scoresPayload);
+            });
     },
 
-    // Globaler Daten-Refresh im Hintergrund
-    refreshGlobalAppData: function()
+    // Loggt den aktuellen Spieler aus und leitet zurück zur Login-Ansicht
+    logout: function()
     {
-        const icon = document.getElementById('global-refresh-icon');
-        const btn = document.getElementById('global-refresh-btn');
-        
-        if (btn && icon)
-        {
-            btn.disabled = true;
-            icon.classList.add('fa-spin');
-        }
-
-        if (typeof google !== 'undefined' && google.script && google.script.run)
-        {
-            google.script.run
-                .withSuccessHandler(function(response)
-                {
-                    if (response && response.success === true)
-                    {
-                        app.state.spieler = response.spieler || [];
-                        app.state.golfplaetze = response.golfplaetze || [];
-                        app.state.kurse = response.kurse || [];
-                        app.state.bahnen = response.bahnen || [];
-                        app.state.handicaps = response.handicaps || [];
-                        app.state.spieltage = response.spieltage || [];
-                        app.state.scoreCards = response.scoreCards || [];
-                        app.state.flights = response.flights || [];
-
-                        if (app.state.currentUser)
-                        {
-                            const freshUserMatch = app.state.spieler.find(function(s) 
-                            { 
-                                return String(s.id).trim() === String(app.state.currentUser.id).trim(); 
-                            });
-                            
-                            if (freshUserMatch)
-                            {
-                                app.state.currentUser = freshUserMatch;
-                            }
-                        }
-
-                        app.router.updateNavigationUI(app.state.currentView);
-                        app.logic.updateHeaderRoleIcon();
-                        app.router.navigate(app.state.currentView);
-                    }
-                    
-                    setTimeout(function()
-                    {
-                        if (btn && icon)
-                        {
-                            btn.disabled = false;
-                            icon.classList.remove('fa-spin');
-                        }
-                    }, 500);
-                })
-                .withFailureHandler(function(err)
-                {
-                    console.error("Fehler beim Hintergrund-Refresh:", err);
-                    if (btn && icon)
-                    {
-                        btn.disabled = false;
-                        icon.classList.remove('fa-spin');
-                    }
-                    app.logic.showToast("Daten konnten nicht aktualisiert werden. Offline?", "error");
-                })
-                .getInitialAppData();
-        }
+        app.logic.showConfirm(
+            "Abmelden?", 
+            "Möchtest du dich wirklich aus der LIE Scorecard abmelden?", 
+            "standard", 
+            function() 
+            {
+                app.state.currentUser = null;
+                localStorage.removeItem('lie_scorecard_user_id');
+                app.logic.updateHeaderRoleIcon();
+                app.router.navigate('login');
+                app.logic.showToast("Erfolgreich abgemeldet.", "success");
+            }
+        );
     },
 
     // Aktualisiert das Rollen-Symbol im globalen Header
     updateHeaderRoleIcon: function()
     {
         const badgeContainer = document.getElementById('header-role-badge');
+        const logoutBtn = document.getElementById('header-logout-btn');
+
         if (!badgeContainer) 
         {
             return;
@@ -503,8 +491,11 @@ app.logicGAS =
         if (!app.state.currentUser || !app.state.currentUser.role)
         {
             badgeContainer.innerHTML = "";
+            if (logoutBtn) logoutBtn.classList.add('hidden');
             return;
         }
+
+        if (logoutBtn) logoutBtn.classList.remove('hidden');
 
         const rolle = app.state.currentUser.role;
         let iconHtml = "";
@@ -751,8 +742,8 @@ app.logicGAS =
             }
         });
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('createNewSpieltag', { spieltagObj: spieltagObj, flightsPayload: flightsPayload })
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -766,8 +757,7 @@ app.logicGAS =
                 {
                     app.logic.showToast("Fehler beim Speichern: " + response.error, "error");
                 }
-            })
-            .createNewSpieltag(spieltagObj, flightsPayload);
+            });
     },
 
     // Zufälliges Zusammenlosen der Flights (Unterstützt 2er, 3er und 4er Flights)
@@ -865,8 +855,8 @@ app.logicGAS =
             };
         });
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('createNewSpieltag', { spieltagObj: spieltagObj, flightsPayload: flightsPayload })
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -880,8 +870,7 @@ app.logicGAS =
                 {
                     app.logic.showToast("Fehler aufgetreten: " + response.error, "error");
                 }
-            })
-            .createNewSpieltag(spieltagObj, flightsPayload);
+            });
     },
 
     // Spielleiter-Funktion: Bricht einen Spieltag offiziell ab (Status "Abgebrochen")
@@ -900,8 +889,8 @@ app.logicGAS =
                     btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Verarbeite Abbruch...`;
                 }
 
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('cancelSpieltagServer', { spieltagId: spieltagId })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -924,7 +913,7 @@ app.logicGAS =
                             }
                         }
                     })
-                    .withFailureHandler(function(err)
+                    .catch(function(err)
                     {
                         app.logic.showToast("Netzwerkfehler: " + err, "error");
                         if (btn)
@@ -932,8 +921,7 @@ app.logicGAS =
                             btn.disabled = false;
                             btn.innerHTML = `<i class="fas fa-times-circle mr-1"></i> Spieltag abbrechen`;
                         }
-                    })
-                    .cancelSpieltagServer(spieltagId);
+                    });
             }
         );
     },
@@ -1061,8 +1049,8 @@ app.logicGAS =
                     btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Berechne & Schließe...`;
                 }
 
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('closeSpieltagServer', { spieltagId: spieltagId, bruttoSieger: bruttoSieger, nettoSieger: nettoSieger, handicapUpdates: handicapUpdates })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1095,94 +1083,96 @@ app.logicGAS =
                                 btn.innerHTML = `<i class="fas fa-flag-checkered mr-1"></i> Spieltag offiziell beenden`;
                             }
                         }
-                    })
-                    .closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpdates);
+                    });
             }
         );
     },
 
     // Login-Prozess: Prüft die PIN-Eingabe gegen die verschlüsselten Server-Salts
-    submitPin: function()
+    submitPin: function(event) 
     {
-        const sel = document.getElementById('login-spieler-select');
-        const pinIn = document.getElementById('login-pin-input');
-        if (!sel || !pinIn) 
+        if (event) 
         {
-            return;
+            if (typeof event.preventDefault === 'function') event.preventDefault();
+            if (typeof event.stopPropagation === 'function') event.stopPropagation();
         }
-
-        const spielerId = sel.value;
-        const pin = pinIn.value.trim();
-
-        if (!spielerId || !pin)
+    
+        const btn = document.getElementById('loginSubmitBtn') || (event && event.target);
+        if (btn && btn.disabled) 
         {
-            app.logic.showToast("Bitte Namen auswählen und PIN eintippen!", "info");
-            return;
+            console.log("[PIN Guard] Klick blockiert: Anfrage läuft bereits...");
+            return false;
         }
-
-        const btn = document.getElementById('login-submit-btn');
-        if (btn)
+    
+        const spielerId = document.getElementById('loginSpielerSelect')?.value;
+        const pin = document.getElementById('loginPinInput')?.value;
+    
+        if (!spielerId || !pin || pin.trim() === "") 
+        {
+            if (typeof app.logic.showToast === 'function') 
+            {
+                app.logic.showToast("Bitte Namen auswählen und PIN eintippen!");
+            }
+            return false;
+        }
+    
+        if (btn && typeof btn.setAttribute === 'function') 
         {
             btn.disabled = true;
-            btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Authentifizierung...`;
+            btn.dataset.oldText = btn.innerText || btn.value;
+            btn.innerText = "Prüfe...";
         }
-
-        google.script.run
-            .withSuccessHandler(function(response)
+    
+        console.log("[BRIDGE] Weiterleitung an API: verifyPlayerPin für ID:", spielerId);
+    
+        app.logic.apiRequest('verifyPlayerPin', { spielerId: spielerId, pin: pin.trim() })
+        .then(function(response) 
+        {
+            if (response && response.success) 
             {
-                const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === String(spielerId).trim(); });
+                console.log("[PIN Success] Login erfolgreich. mustChange:", response.mustChange);
                 
-                if (response && response.success)
-                {
-                    app.state.currentUser = spieler;
-                    localStorage.setItem('lie_scorecard_user_id', spieler.id);
-                    app.logic.updateHeaderRoleIcon();
+                app.state = app.state || {};
+                app.state.currentUser = app.state.spieler.find(function(s) {
+                    return String(s.id) === String(spielerId);
+                });
 
-                    if (response.mustChange)
-                    {
-                        app.router.navigate('pin_aendern');
-                    }
-                    else
-                    {
-                        app.router.navigate('dashboard');
-                    }
-                }
-                else
+                if (response.mustChange) 
                 {
-                    app.logic.showToast(response ? response.error : "Login fehlgeschlagen.", "error");
-                    if (btn)
-                    {
-                        btn.disabled = false;
-                        btn.innerHTML = `Einloggen <i class="fas fa-sign-in-alt ml-1"></i>`;
-                    }
-                }
-            })
-            .withFailureHandler(function(err)
-            {
-                app.logic.showToast("Verbindungsfehler zum Server: " + err, "error");
-                if (btn)
+                    localStorage.removeItem('lie_scorecard_user_id');
+                    app.router.navigate('pin_aendern');
+                } 
+                else 
                 {
-                    btn.disabled = false;
-                    btn.innerHTML = `Einloggen <i class="fas fa-sign-in-alt ml-1"></i>`;
+                    if (app.state.currentUser)
+                    {
+                        localStorage.setItem('lie_scorecard_user_id', app.state.currentUser.id);
+                    }
+                    app.router.navigate('dashboard');
                 }
-            })
-            .verifyPlayerPin(spielerId, pin);
-    },
-
-    // Loggt den aktuellen Benutzer aus und leert den Gerätespeicher
-    logout: function()
-    {
-        app.logic.showConfirm(
-            "Ausloggen?", 
-            "Möchtest du dich wirklich ausloggen?", 
-            "standard", 
-            function() 
+            } 
+            else 
             {
-                app.state.currentUser = null;
-                localStorage.removeItem('lie_scorecard_user_id');
-                app.router.navigate('login');
+                const errMsg = (response && response.error) ? response.error : "Falsche PIN!";
+                if (typeof app.logic.showToast === 'function') app.logic.showToast(errMsg, "error");
+                
+                if (btn) btn.disabled = false;
+                if (btn && btn.dataset.oldText) btn.innerText = btn.dataset.oldText;
             }
-        );
+        })
+        .catch(function(err) 
+        {
+            console.error("[BRIDGE Error] verifyPlayerPin fehlgeschlagen:", err);
+            if (typeof app.logic.showToast === 'function') 
+            {
+                app.logic.showToast("Fehler bei der PIN-Verifizierung: " + err.message, "error");
+            }
+            
+            if (btn) btn.disabled = false;
+            if (btn && btn.dataset.oldText) btn.innerText = btn.dataset.oldText;
+        });
+    
+        return false;
     },
 
     // Ändert die Initial-PIN (4722) ab in eine persönliche Zahlenkombination
@@ -1223,13 +1213,15 @@ app.logicGAS =
             btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere PIN...`;
         }
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('changePlayerPinServer', { spielerId: app.state.currentUser.id, newPin: val1 })
+            .then(function(response)
             {
                 if (response && response.success)
                 {
-                    app.logic.showToast("Deine neue PIN wurde erfolgreich verschlüsselt!", "success");
-                    app.router.navigate('dashboard');
+                    app.logic.showToast("PIN geändert! Bitte melde dich mit deiner neuen PIN an.", "success");
+                    app.state.currentUser = null;
+                    localStorage.removeItem('lie_scorecard_user_id');
+                    app.router.navigate('login');
                 }
                 else
                 {
@@ -1240,8 +1232,7 @@ app.logicGAS =
                         btn.innerHTML = `<i class="fas fa-key mr-1"></i> PIN dauerhaft speichern`;
                     }
                 }
-            })
-            .changePlayerPinServer(app.state.currentUser.id, val1);
+            });
     },
 
     // Admin-Funktion: Speichern eines Spielerprofils
@@ -1286,8 +1277,8 @@ app.logicGAS =
             btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere Profil...`;
         }
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('savePlayerServer', spielerObj)
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -1298,8 +1289,8 @@ app.logicGAS =
                         app.state.currentUser.role = spielerObj.role;
                     }
 
-                    google.script.run
-                        .withSuccessHandler(function(freshData)
+                    app.logic.apiRequest('getInitialAppData')
+                        .then(function(freshData)
                         {
                             if (freshData && freshData.success)
                             {
@@ -1310,8 +1301,7 @@ app.logicGAS =
                             app.router.updateNavigationUI('spieler');
                             app.logic.updateHeaderRoleIcon();
                             app.router.navigate('spieler');
-                        })
-                        .getInitialAppData();
+                        });
                 }
                 else
                 {
@@ -1323,7 +1313,7 @@ app.logicGAS =
                     }
                 }
             })
-            .withFailureHandler(function(err)
+            .catch(function(err)
             {
                 app.logic.showToast("Netzwerkfehler beim Speichern: " + err, "error");
                 if (btn)
@@ -1331,8 +1321,7 @@ app.logicGAS =
                     btn.disabled = false;
                     btn.innerHTML = `<i class="fas fa-save mr-1"></i> Profil speichern`;
                 }
-            })
-            .savePlayerServer(spielerObj);
+            });
     },
 
     // Admin-Funktion: Entfernt einen Spieler physisch vom Server
@@ -1344,8 +1333,8 @@ app.logicGAS =
             "danger", 
             function() 
             {
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('deletePlayerServer', { spielerId: spielerId })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1357,8 +1346,7 @@ app.logicGAS =
                         {
                             app.logic.showToast("Fehler beim Löschen: " + response.error, "error");
                         }
-                    })
-                    .deletePlayerServer(spielerId);
+                    });
             }
         );
     },
@@ -1372,8 +1360,8 @@ app.logicGAS =
             "standard", 
             function() 
             {
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('setPlayerPin', { spielerId: spielerId, pin: "4722", mustChange: true })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1383,8 +1371,7 @@ app.logicGAS =
                         {
                             app.logic.showToast("Fehler bei PIN-Reset: " + response.error, "error");
                         }
-                    })
-                    .setPlayerPin(spielerId, "4722", false);
+                    });
             }
         );
     },
@@ -1405,8 +1392,8 @@ app.logicGAS =
                     btn.innerHTML = `<i class="fas fa-bomb fa-spin mr-1"></i> Sprengung läuft...`;
                 }
 
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('clearTestDataBase')
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1429,7 +1416,7 @@ app.logicGAS =
                             }
                         }
                     })
-                    .withFailureHandler(function(err)
+                    .catch(function(err)
                     {
                         app.logic.showToast("Kritischer Netzwerkfehler: " + err, "error");
                         if (btn)
@@ -1437,8 +1424,7 @@ app.logicGAS =
                             btn.disabled = false;
                             btn.innerHTML = `<i class="fas fa-bomb mr-1"></i> Testdaten-Sprengung ausführen`;
                         }
-                    })
-                    .clearTestDataBase();
+                    });
             }
         );
     },
@@ -1447,15 +1433,22 @@ app.logicGAS =
     // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
     // =========================================================================
 
-    /**
-     * Zeigt einen eleganten, flüchtigen Toast-Hinweis an.
-     * @param {string} text - Die Nachricht
-     * @param {string} type - 'success', 'error', 'info'
-     */
+    // =========================================================================
+    // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
+    // =========================================================================
+
     showToast: function(text, type)
     {
-        const container = document.getElementById('global-toast-container');
-        if (!container) return;
+        let container = document.getElementById('global-toast-container');
+        
+        // Auto-Recovery: Falls der Container im HTML fehlt, erstelle ihn dynamisch im Body!
+        if (!container)
+        {
+            container = document.createElement('div');
+            container.id = 'global-toast-container';
+            container.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-full max-w-sm px-4 pointer-events-none';
+            document.body.appendChild(container);
+        }
 
         let bgClass = "bg-stone-900 text-white";
         let iconHtml = '<i class="fas fa-info-circle"></i>';
@@ -1470,6 +1463,11 @@ app.logicGAS =
             bgClass = "bg-red-600 text-white shadow-md shadow-red-600/20";
             iconHtml = '<i class="fas fa-exclamation-circle"></i>';
         }
+        else if (type === 'warning')
+        {
+            bgClass = "bg-amber-500 text-white shadow-md shadow-amber-500/20";
+            iconHtml = '<i class="fas fa-triangle-exclamation"></i>';
+        }
 
         const toast = document.createElement('div');
         toast.className = `${bgClass} px-4 py-3 rounded-xl text-xs font-semibold flex items-center space-x-2.5 shadow-lg transition-all duration-300 opacity-0 translate-y-2 pointer-events-auto`;
@@ -1477,12 +1475,10 @@ app.logicGAS =
         
         container.appendChild(toast);
 
-        // Animation Einblenden
         setTimeout(function() {
             toast.classList.remove('opacity-0', 'translate-y-2');
         }, 10);
 
-        // Automatisch Ausblenden und Zerstören nach 3 Sekunden
         setTimeout(function() {
             toast.classList.add('opacity-0', '-translate-y-2');
             setTimeout(function() {
@@ -1491,13 +1487,6 @@ app.logicGAS =
         }, 3200);
     },
 
-    /**
-     * Ersetzt window.confirm durch ein edles, asynchrones In-App Modal.
-     * @param {string} title - Überschrift des Modals
-     * @param {string} message - Beschreibungstext
-     * @param {string} mode - 'danger' für rote Buttons, 'standard' für grüne
-     * @param {function} onConfirm - Callback bei Klick auf "Bestätigen"
-     */
     showConfirm: function(title, message, mode, onConfirm)
     {
         const modal = document.getElementById('global-confirm-modal');
@@ -1514,7 +1503,6 @@ app.logicGAS =
         titleEl.innerText = title;
         msgEl.innerText = message;
 
-        // Styling je nach Dringlichkeit (Gefahrenzone vs Standard)
         if (mode === 'danger')
         {
             iconContainer.className = "w-10 h-10 rounded-full flex items-center justify-center text-lg flex-shrink-0 bg-red-100 text-red-600";
@@ -1528,13 +1516,11 @@ app.logicGAS =
             btnSubmit.className = "bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-xs";
         }
 
-        // Sichtbar machen
         modal.classList.remove('hidden');
         setTimeout(function() {
             box.classList.remove('opacity-0', 'scale-95');
         }, 10);
 
-        // Schließen-Logik kapseln
         const closeModal = function() {
             box.classList.add('opacity-0', 'scale-95');
             setTimeout(function() {
@@ -1542,7 +1528,6 @@ app.logicGAS =
             }, 200);
         };
 
-        // Event Handler binden
         btnCancel.onclick = function() {
             closeModal();
         };
@@ -1553,26 +1538,24 @@ app.logicGAS =
         };
     },
 
-    // Startet das automatische Polling für die aktiven Ansichten
+    // =========================================================================
+    // BACKGROUND LIVE POLLING CONTROLLER
+    // =========================================================================
+
     startLivePolling: function(spieltagId, holeNr, flightSeq)
     {
         app.logic.stopLivePolling();
 
         const triggerUpdate = function()
         {
-            if (typeof google === 'undefined' || !google.script || !google.script.run)
-            {
-                return;
-            }
-
             const statusDot = document.getElementById('connection-status');
             if (statusDot)
             {
                 statusDot.className = "w-3 h-3 rounded-full bg-amber-400";
             }
 
-            google.script.run
-                .withSuccessHandler(function(response)
+            app.logic.apiRequest('getLiveScoreUpdates', { spieltagId: spieltagId })
+                .then(function(response)
                 {
                     if (statusDot)
                     {
@@ -1598,7 +1581,7 @@ app.logicGAS =
                         {
                             if (app.state.currentView === 'leaderboard')
                             {
-                                const activeTab = document.querySelector('[onclick*="brutto"]').classList.contains('bg-white') ? 'brutto' : 'netto';
+                                const activeTab = document.querySelector('[onclick*="brutto"]')?.classList.contains('bg-white') ? 'brutto' : 'netto';
                                 container.innerHTML = app.views.leaderboard(spieltagId, activeTab);
                             }
                             else if (app.state.currentView === 'score_eingabe' && holeNr)
@@ -1616,22 +1599,20 @@ app.logicGAS =
                         }
                     }
                 })
-                .withFailureHandler(function(err)
+                .catch(function(err)
                 {
                     if (statusDot)
                     {
                         statusDot.className = "w-3 h-3 rounded-full bg-red-400";
                     }
                     console.warn("Polling-Update fehlgeschlagen:", err);
-                })
-                .getLiveScoreUpdates(spieltagId);
+                });
         };
 
         const msInterval = app.state.currentPollingRate * 1000;
         app.state.pollingIntervalId = setInterval(triggerUpdate, msInterval);
     },
 
-    // Stoppt den Hintergrund-Timer sofort
     stopLivePolling: function()
     {
         if (app.state.pollingIntervalId)
@@ -1641,6 +1622,4 @@ app.logicGAS =
             console.log("Polling-Intervall erfolgreich gelöscht.");
         }
     }
-
 };
-
