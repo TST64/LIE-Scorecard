@@ -85,12 +85,18 @@ app.logic =
     // Die neue API-Schnittstelle über JSONP (HTTP GET)
     apiRequest: function(action, payload = {})
     {
-        const API_URL = "https://script.google.com/macros/s/AKfycbxrkzre7SKnPNKmTTmR4dTM06cKmchKnQy42APs_hk6laO-9DFsXwITygTJr2vCpm7uQA/exec";
-        //const API_URL = "https://script.google.com/macros/s/AKfycbwbnunwWte93Bam2SFKSoQrYmhtVkv_aJdAF5RADJyV/dev";
         console.log(`[API Request] Action: ${action}`);
 
         return new Promise((resolve, reject) => 
         {
+            // Sichere Prüfung: Abbrechen, falls CONFIG fehlt
+            if (typeof CONFIG === "undefined" || !CONFIG.API_URL) 
+            {
+                console.error("[API Error] CONFIG oder CONFIG.API_URL ist nicht definiert!");
+                app.logic.showToast("Konfigurationsfehler: API_URL fehlt", "error");
+                return resolve({ success: false, error: "CONFIG fehlt" });
+            }
+
             const callbackName = "gas_callback_" + Math.random().toString(36).substring(2, 15);
             
             window[callbackName] = function(data) 
@@ -101,7 +107,9 @@ app.logic =
             };
 
             const dataPayload = JSON.stringify({ action: action, ...payload });
-            const finalUrl = `${API_URL}?callback=${callbackName}&data=${encodeURIComponent(dataPayload)}`;
+            
+            // Korrektur: Hier CONFIG.API_URL verwenden!
+            const finalUrl = `${CONFIG.API_URL}?callback=${callbackName}&data=${encodeURIComponent(dataPayload)}`;
 
             const script = document.createElement("script");
             script.src = finalUrl;
@@ -420,6 +428,7 @@ app.logic =
             const scoreKey = `${spieltagId}_${spielerId}_${holeNr}`;
             const ladyKey = `${spieltagId}_${spielerId}_${holeNr}_lady`;
             const putsKey = `${spieltagId}_${spielerId}_${holeNr}_puts`;
+            const maxScoreKey = `${spieltagId}_${spielerId}_${holeNr}_maxscore`;
             
             let strokes = app.state.liveScores[scoreKey];
             if (strokes === undefined || strokes === null || strokes <= 0) return;
@@ -440,7 +449,8 @@ app.logic =
                 strokes: parseInt(strokes),
                 strokesGiven: strokesGiven,
                 lady: !!app.state.liveScores[ladyKey],
-                puts: app.state.liveScores[putsKey] !== undefined ? parseInt(app.state.liveScores[putsKey]) : 2
+                puts: app.state.liveScores[putsKey] !== undefined ? parseInt(app.state.liveScores[putsKey]) : 2,
+                maxscore: !!app.state.liveScores[maxScoreKey]
             });
         });
 
@@ -451,8 +461,8 @@ app.logic =
             return;
         }
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('saveLiveScores', scoresPayload)
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -487,19 +497,38 @@ app.logic =
                 }
                 app.logic.startLivePolling(spieltagId, null, flightSeq);
             })
-            .withFailureHandler(function(err)
+            .catch(function(err)
             {
                 console.error("Netzwerkfehler beim Sichern:", err);
                 if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Sichern`; }
                 app.logic.startLivePolling(spieltagId, null, flightSeq);
-            })
-            .saveLiveScores(scoresPayload);
+            });
+    },
+
+    // Loggt den aktuellen Spieler aus und leitet zurück zur Login-Ansicht
+    logout: function()
+    {
+        app.logic.showConfirm(
+            "Abmelden?", 
+            "Möchtest du dich wirklich aus der LIE Scorecard abmelden?", 
+            "standard", 
+            function() 
+            {
+                app.state.currentUser = null;
+                localStorage.removeItem('lie_scorecard_user_id');
+                app.logic.updateHeaderRoleIcon();
+                app.router.navigate('login');
+                app.logic.showToast("Erfolgreich abgemeldet.", "success");
+            }
+        );
     },
 
     // Aktualisiert das Rollen-Symbol im globalen Header
     updateHeaderRoleIcon: function()
     {
         const badgeContainer = document.getElementById('header-role-badge');
+        const logoutBtn = document.getElementById('header-logout-btn');
+
         if (!badgeContainer) 
         {
             return;
@@ -508,8 +537,11 @@ app.logic =
         if (!app.state.currentUser || !app.state.currentUser.role)
         {
             badgeContainer.innerHTML = "";
+            if (logoutBtn) logoutBtn.classList.add('hidden');
             return;
         }
+
+        if (logoutBtn) logoutBtn.classList.remove('hidden');
 
         const rolle = app.state.currentUser.role;
         let iconHtml = "";
@@ -756,8 +788,8 @@ app.logic =
             }
         });
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('createNewSpieltag', { spieltagObj: spieltagObj, flightsPayload: flightsPayload })
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -771,8 +803,7 @@ app.logic =
                 {
                     app.logic.showToast("Fehler beim Speichern: " + response.error, "error");
                 }
-            })
-            .createNewSpieltag(spieltagObj, flightsPayload);
+            });
     },
 
     // Zufälliges Zusammenlosen der Flights (Unterstützt 2er, 3er und 4er Flights)
@@ -870,8 +901,8 @@ app.logic =
             };
         });
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('createNewSpieltag', { spieltagObj: spieltagObj, flightsPayload: flightsPayload })
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -885,8 +916,7 @@ app.logic =
                 {
                     app.logic.showToast("Fehler aufgetreten: " + response.error, "error");
                 }
-            })
-            .createNewSpieltag(spieltagObj, flightsPayload);
+            });
     },
 
     // Spielleiter-Funktion: Bricht einen Spieltag offiziell ab (Status "Abgebrochen")
@@ -905,8 +935,8 @@ app.logic =
                     btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Verarbeite Abbruch...`;
                 }
 
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('cancelSpieltagServer', { spieltagId: spieltagId })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -929,7 +959,7 @@ app.logic =
                             }
                         }
                     })
-                    .withFailureHandler(function(err)
+                    .catch(function(err)
                     {
                         app.logic.showToast("Netzwerkfehler: " + err, "error");
                         if (btn)
@@ -937,8 +967,7 @@ app.logic =
                             btn.disabled = false;
                             btn.innerHTML = `<i class="fas fa-times-circle mr-1"></i> Spieltag abbrechen`;
                         }
-                    })
-                    .cancelSpieltagServer(spieltagId);
+                    });
             }
         );
     },
@@ -1066,8 +1095,8 @@ app.logic =
                     btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Berechne & Schließe...`;
                 }
 
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('closeSpieltagServer', { spieltagId: spieltagId, bruttoSieger: bruttoSieger, nettoSieger: nettoSieger, handicapUpdates: handicapUpdates })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1100,8 +1129,7 @@ app.logic =
                                 btn.innerHTML = `<i class="fas fa-flag-checkered mr-1"></i> Spieltag offiziell beenden`;
                             }
                         }
-                    })
-                    .closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpdates);
+                    });
             }
         );
     },
@@ -1109,34 +1137,12 @@ app.logic =
     // Login-Prozess: Prüft die PIN-Eingabe gegen die verschlüsselten Server-Salts
     submitPin: function(event) 
     {
-        // 1. Absoluter Stop für jegliche HTML-Formular-Standard-Events
         if (event) 
         {
             if (typeof event.preventDefault === 'function') event.preventDefault();
-
-            // ==========================================
-            // DIAGNOSE-BLOCK START
-            // ==========================================
-            console.log("=== LOGIN DIAGNOSE ===");
-            
-            // Test 1: Suchen nach IDs
-            console.log("ID 'loginSpielerSelect':", document.getElementById('loginSpielerSelect'));
-            console.log("ID 'loginPinInput':", document.getElementById('loginPinInput'));
-            
-            // Test 2: Alle Selects und Inputs auf der aktuellen Seite listen
-            const allSelects = Array.from(document.querySelectorAll('select')).map(el => ({ id: el.id, class: el.className, name: el.name, val: el.value }));
-            const allInputs = Array.from(document.querySelectorAll('input')).map(el => ({ id: el.id, class: el.className, name: el.name, type: el.type, val: el.value }));
-            
-            console.log("Alle gefundenen <select> Elemente:", allSelects);
-            console.log("Alle gefundenen <input> Elemente:", allInputs);
-            console.log("======================");
-            // ==========================================
-            // DIAGNOSE-BLOCK END
-
             if (typeof event.stopPropagation === 'function') event.stopPropagation();
         }
     
-        // 2. Button-Guard gegen Mehrfachklicks
         const btn = document.getElementById('loginSubmitBtn') || (event && event.target);
         if (btn && btn.disabled) 
         {
@@ -1156,7 +1162,6 @@ app.logic =
             return false;
         }
     
-        // Button visuell sperren
         if (btn && typeof btn.setAttribute === 'function') 
         {
             btn.disabled = true;
@@ -1166,40 +1171,37 @@ app.logic =
     
         console.log("[BRIDGE] Weiterleitung an API: verifyPlayerPin für ID:", spielerId);
     
-        // 3. API-Aufruf ausführen
-        app.logic.apiRequest({
-            action: 'verifyPlayerPin',
-            spielerId: spielerId,
-            pin: pin.trim()
-        })
+        app.logic.apiRequest('verifyPlayerPin', { spielerId: spielerId, pin: pin.trim() })
         .then(function(response) 
         {
             if (response && response.success) 
             {
                 console.log("[PIN Success] Login erfolgreich. mustChange:", response.mustChange);
                 
-                // Wichtig: Aktiven Spieler im globalen App-Status hinterlegen!
                 app.state = app.state || {};
-                app.state.currentUser = app.logic.spieler.find(function(s) {
+                app.state.currentUser = app.state.spieler.find(function(s) {
                     return String(s.id) === String(spielerId);
                 });
-    
-                // Weiterleitung je nach PIN-Status
+
                 if (response.mustChange) 
                 {
+                    localStorage.removeItem('lie_scorecard_user_id');
                     app.router.navigate('pin_aendern');
                 } 
                 else 
                 {
+                    if (app.state.currentUser)
+                    {
+                        localStorage.setItem('lie_scorecard_user_id', app.state.currentUser.id);
+                    }
                     app.router.navigate('dashboard');
                 }
             } 
             else 
             {
                 const errMsg = (response && response.error) ? response.error : "Falsche PIN!";
-                if (typeof app.logic.showToast === 'function') app.logic.showToast(errMsg);
+                if (typeof app.logic.showToast === 'function') app.logic.showToast(errMsg, "error");
                 
-                // Button im Fehlerfall wieder freigeben!
                 if (btn) btn.disabled = false;
                 if (btn && btn.dataset.oldText) btn.innerText = btn.dataset.oldText;
             }
@@ -1209,10 +1211,9 @@ app.logic =
             console.error("[BRIDGE Error] verifyPlayerPin fehlgeschlagen:", err);
             if (typeof app.logic.showToast === 'function') 
             {
-                app.logic.showToast("Fehler bei der PIN-Verifizierung: " + err.message);
+                app.logic.showToast("Fehler bei der PIN-Verifizierung: " + err.message, "error");
             }
             
-            // Button im Fehlerfall wieder freigeben!
             if (btn) btn.disabled = false;
             if (btn && btn.dataset.oldText) btn.innerText = btn.dataset.oldText;
         });
@@ -1258,13 +1259,15 @@ app.logic =
             btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere PIN...`;
         }
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('changePlayerPinServer', { spielerId: app.state.currentUser.id, newPin: val1 })
+            .then(function(response)
             {
                 if (response && response.success)
                 {
-                    app.logic.showToast("Deine neue PIN wurde erfolgreich verschlüsselt!", "success");
-                    app.router.navigate('dashboard');
+                    app.logic.showToast("PIN geändert! Bitte melde dich mit deiner neuen PIN an.", "success");
+                    app.state.currentUser = null;
+                    localStorage.removeItem('lie_scorecard_user_id');
+                    app.router.navigate('login');
                 }
                 else
                 {
@@ -1275,8 +1278,7 @@ app.logic =
                         btn.innerHTML = `<i class="fas fa-key mr-1"></i> PIN dauerhaft speichern`;
                     }
                 }
-            })
-            .changePlayerPinServer(app.state.currentUser.id, val1);
+            });
     },
 
     // Admin-Funktion: Speichern eines Spielerprofils
@@ -1321,8 +1323,8 @@ app.logic =
             btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Speichere Profil...`;
         }
 
-        google.script.run
-            .withSuccessHandler(function(response)
+        app.logic.apiRequest('savePlayerServer', spielerObj)
+            .then(function(response)
             {
                 if (response && response.success)
                 {
@@ -1333,8 +1335,8 @@ app.logic =
                         app.state.currentUser.role = spielerObj.role;
                     }
 
-                    google.script.run
-                        .withSuccessHandler(function(freshData)
+                    app.logic.apiRequest('getInitialAppData')
+                        .then(function(freshData)
                         {
                             if (freshData && freshData.success)
                             {
@@ -1345,8 +1347,7 @@ app.logic =
                             app.router.updateNavigationUI('spieler');
                             app.logic.updateHeaderRoleIcon();
                             app.router.navigate('spieler');
-                        })
-                        .getInitialAppData();
+                        });
                 }
                 else
                 {
@@ -1358,7 +1359,7 @@ app.logic =
                     }
                 }
             })
-            .withFailureHandler(function(err)
+            .catch(function(err)
             {
                 app.logic.showToast("Netzwerkfehler beim Speichern: " + err, "error");
                 if (btn)
@@ -1366,8 +1367,7 @@ app.logic =
                     btn.disabled = false;
                     btn.innerHTML = `<i class="fas fa-save mr-1"></i> Profil speichern`;
                 }
-            })
-            .savePlayerServer(spielerObj);
+            });
     },
 
     // Admin-Funktion: Entfernt einen Spieler physisch vom Server
@@ -1379,8 +1379,8 @@ app.logic =
             "danger", 
             function() 
             {
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('deletePlayerServer', { spielerId: spielerId })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1392,8 +1392,7 @@ app.logic =
                         {
                             app.logic.showToast("Fehler beim Löschen: " + response.error, "error");
                         }
-                    })
-                    .deletePlayerServer(spielerId);
+                    });
             }
         );
     },
@@ -1407,8 +1406,8 @@ app.logic =
             "standard", 
             function() 
             {
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('setPlayerPin', { spielerId: spielerId, pin: "4722", mustChange: true })
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1418,8 +1417,7 @@ app.logic =
                         {
                             app.logic.showToast("Fehler bei PIN-Reset: " + response.error, "error");
                         }
-                    })
-                    .setPlayerPin(spielerId, "4722", false);
+                    });
             }
         );
     },
@@ -1440,8 +1438,8 @@ app.logic =
                     btn.innerHTML = `<i class="fas fa-bomb fa-spin mr-1"></i> Sprengung läuft...`;
                 }
 
-                google.script.run
-                    .withSuccessHandler(function(response)
+                app.logic.apiRequest('clearTestDataBase')
+                    .then(function(response)
                     {
                         if (response && response.success)
                         {
@@ -1464,7 +1462,7 @@ app.logic =
                             }
                         }
                     })
-                    .withFailureHandler(function(err)
+                    .catch(function(err)
                     {
                         app.logic.showToast("Kritischer Netzwerkfehler: " + err, "error");
                         if (btn)
@@ -1472,8 +1470,7 @@ app.logic =
                             btn.disabled = false;
                             btn.innerHTML = `<i class="fas fa-bomb mr-1"></i> Testdaten-Sprengung ausführen`;
                         }
-                    })
-                    .clearTestDataBase();
+                    });
             }
         );
     },
@@ -1482,10 +1479,22 @@ app.logic =
     // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
     // =========================================================================
 
+    // =========================================================================
+    // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
+    // =========================================================================
+
     showToast: function(text, type)
     {
-        const container = document.getElementById('global-toast-container');
-        if (!container) return;
+        let container = document.getElementById('global-toast-container');
+        
+        // Auto-Recovery: Falls der Container im HTML fehlt, erstelle ihn dynamisch im Body!
+        if (!container)
+        {
+            container = document.createElement('div');
+            container.id = 'global-toast-container';
+            container.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-full max-w-sm px-4 pointer-events-none';
+            document.body.appendChild(container);
+        }
 
         let bgClass = "bg-stone-900 text-white";
         let iconHtml = '<i class="fas fa-info-circle"></i>';
@@ -1499,6 +1508,11 @@ app.logic =
         {
             bgClass = "bg-red-600 text-white shadow-md shadow-red-600/20";
             iconHtml = '<i class="fas fa-exclamation-circle"></i>';
+        }
+        else if (type === 'warning')
+        {
+            bgClass = "bg-amber-500 text-white shadow-md shadow-amber-500/20";
+            iconHtml = '<i class="fas fa-triangle-exclamation"></i>';
         }
 
         const toast = document.createElement('div');
@@ -1580,19 +1594,14 @@ app.logic =
 
         const triggerUpdate = function()
         {
-            if (typeof google === 'undefined' || !google.script || !google.script.run)
-            {
-                return;
-            }
-
             const statusDot = document.getElementById('connection-status');
             if (statusDot)
             {
                 statusDot.className = "w-3 h-3 rounded-full bg-amber-400";
             }
 
-            google.script.run
-                .withSuccessHandler(function(response)
+            app.logic.apiRequest('getLiveScoreUpdates', { spieltagId: spieltagId })
+                .then(function(response)
                 {
                     if (statusDot)
                     {
@@ -1618,7 +1627,7 @@ app.logic =
                         {
                             if (app.state.currentView === 'leaderboard')
                             {
-                                const activeTab = document.querySelector('[onclick*="brutto"]').classList.contains('bg-white') ? 'brutto' : 'netto';
+                                const activeTab = document.querySelector('[onclick*="brutto"]')?.classList.contains('bg-white') ? 'brutto' : 'netto';
                                 container.innerHTML = app.views.leaderboard(spieltagId, activeTab);
                             }
                             else if (app.state.currentView === 'score_eingabe' && holeNr)
@@ -1636,15 +1645,14 @@ app.logic =
                         }
                     }
                 })
-                .withFailureHandler(function(err)
+                .catch(function(err)
                 {
                     if (statusDot)
                     {
                         statusDot.className = "w-3 h-3 rounded-full bg-red-400";
                     }
                     console.warn("Polling-Update fehlgeschlagen:", err);
-                })
-                .getLiveScoreUpdates(spieltagId);
+                });
         };
 
         const msInterval = app.state.currentPollingRate * 1000;
@@ -2031,716 +2039,15 @@ app.views.help = function()
 
 ##### <Bridge_Fix.js>:
 ----------------------------------------------------------------------
-// Bridge_Fix.js
-app.logic = app.logic || {};
-app.logic.showToast = function(msg) {
-    console.error("[Toast Fallback]:", msg);
-    alert(msg);
-};
-
-
-##### <Code.gs_old.js>:
-----------------------------------------------------------------------
-/**
- * Holt eine konfigurierte Tabellen-URL aus den Script-Properties.
- */
-function getSpreadsheetUrl(propertyName)
-{
-    const props = PropertiesService.getScriptProperties();
-    const url = props.getProperty(propertyName);
-    
-    if (!url)
-    {
-        throw new Error("Projekteigenschaft '" + propertyName + "' wurde im Apps Script Projekt nicht gefunden!");
-    }
-    return url;
+// KORREKTUR in Bridge_Fix.js (Zeile ~4):
+if (typeof app !== 'undefined' && app.logic) {
+    app.logic.showToast = function(text, type) {
+        // Falls App_Logic_Core.js eine globale showToast-Funktion hat:
+        if (typeof showToast === 'function') {
+            showToast(text, type);
+        }
+    };
 }
-
-function doGet(e)
-{
-    return HtmlService.createTemplateFromFile('Index')
-        .evaluate()
-        .setTitle('LIE Scorecard')
-        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function include(filename)
-{
-    return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
-
-function getInitialAppData()
-{
-    const debugLog = [];
-    try
-    {
-        debugLog.push("Verbinde mit Spreadsheets über Projekteigenschaften...");
-        // Dynamischer Abruf statt harter URLs
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const ssRef = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssRef"));
-        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
-
-        debugLog.push("Suche Tabellenblatt 'adm_Spieler'...");
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        if (!tSpieler) return { success: false, error: "Tabelle 'adm_Spieler' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'ref_Golfplätze'...");
-        const tPlaetze = ssRef.getSheetByName("ref_Golfplätze");
-        if (!tPlaetze) return { success: false, error: "Tabelle 'ref_Golfplätze' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'ref_GolfplatzKurse'...");
-        const tKurse = ssRef.getSheetByName("ref_GolfplatzKurse");
-        if (!tKurse) return { success: false, error: "Tabelle 'ref_GolfplatzKurse' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'ref_KursBahnen'...");
-        const tBahnen = ssRef.getSheetByName("ref_KursBahnen");
-        if (!tBahnen) return { success: false, error: "Tabelle 'ref_KursBahnen' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'ref_KursHandicap'...");
-        const tHandicaps = ssRef.getSheetByName("ref_KursHandicap");
-        if (!tHandicaps) return { success: false, error: "Tabelle 'ref_KursHandicap' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'app_Spieltage'...");
-        const tSpieltage = ssApp.getSheetByName("app_Spieltage");
-        if (!tSpieltage) return { success: false, error: "Tabelle 'app_Spieltage' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'app_ScoreCards'...");
-        const tScoreCards = ssApp.getSheetByName("app_ScoreCards");
-        if (!tScoreCards) return { success: false, error: "Tabelle 'app_ScoreCards' nicht gefunden!" };
-
-        debugLog.push("Suche Tabellenblatt 'app_Flights'...");
-        const tFlights = ssApp.getSheetByName("app_Flights");
-        if (!tFlights) return { success: false, error: "Tabelle 'app_Flights' nicht gefunden!" };
-
-        debugLog.push("Konvertiere Tabellendaten...");
-        return {
-            success: true,
-            spieler: getSheetDataAsJson(tSpieler),
-            golfplaetze: getSheetDataAsJson(tPlaetze),
-            kurse: getSheetDataAsJson(tKurse),
-            bahnen: getSheetDataAsJson(tBahnen),
-            handicaps: getSheetDataAsJson(tHandicaps),
-            spieltage: getSheetDataAsJson(tSpieltage),
-            scoreCards: getSheetDataAsJson(tScoreCards),
-            flights: getSheetDataAsJson(tFlights)
-        };
-    }
-    catch (err)
-    {
-        return {
-            success: false,
-            error: "Kritischer Abbruch bei Schritt: " + debugLog.pop() + "\n\nDetails: " + err.toString()
-        };
-    }
-}
-function saveLiveScores(scoresArray)
-{
-    try
-    {
-        if (!scoresArray || scoresArray.length === 0)
-        {
-            return { success: true };
-        }
-
-        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
-        const tScores = ssApp.getSheetByName("app_ScoreCards");
-        
-        if (!tScores)
-        {
-            return { success: false, error: "Tabelle 'app_ScoreCards' wurde nicht gefunden." };
-        }
-
-        // Gesamten aktuellen Tabelleninhalt laden
-        let data = tScores.getDataRange().getValues();
-        let headers = data[0];
-        
-        // Falls Tabelle komplett neu ist, Header mit den neuen Spalten initialisieren
-        if (data.length === 1 && data[0][0] === "")
-        {
-            headers = ["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts"];
-            tScores.getRange(1, 1, 1, 9).setValues([headers]);
-            data = [headers];
-        }
-
-        // Map für schnellen Zeilenzugriff anhand der ID aufbauen
-        const idRowMap = {};
-        for (let i = 1; i < data.length; i++)
-        {
-            const rowId = String(data[i][0]).trim();
-            if (rowId)
-            {
-                idRowMap[rowId] = i + 1; // Zeilenindex im Sheet (1-basiert)
-            }
-        }
-
-        // Neue oder zu aktualisierende Daten verarbeiten
-        scoresArray.forEach(function(item)
-        {
-            const uniqueId = String(item.id).trim();
-            
-            // Formatierung des Zeilen-Arrays (Länge: 9 Spalten)
-            const rowValues = [
-                uniqueId,
-                String(item.spieltagId).trim(),
-                parseInt(item.flightSeq) || 1,
-                String(item.spielerId).trim(),
-                parseInt(item.hole),
-                parseInt(item.strokes),
-                parseInt(item.strokesGiven) || 0,
-                item.lady ? "TRUE" : "FALSE",
-                parseInt(item.puts) !== undefined ? parseInt(item.puts) : 2
-            ];
-
-            const bestehendeZeile = idRowMap[uniqueId];
-            if (bestehendeZeile)
-            {
-                // Existiert bereits -> Überschreiben! (Verhindert doppelte Einträge)
-                tScores.getRange(bestehendeZeile, 1, 1, 9).setValues([rowValues]);
-            }
-            else
-            {
-                // Neu -> Anhängen!
-                tScores.appendRow(rowValues);
-                // Map aktualisieren, falls im selben Payload Dubletten stecken
-                idRowMap[uniqueId] = tScores.getLastRow();
-            }
-        });
-
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-function createNewSpieltag(spieltagObj, flightsArray)
-{
-    try
-    {
-        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
-        const tSpieltage = ssApp.getSheetByName("app_Spieltage");
-        
-        tSpieltage.appendRow([
-            spieltagObj.id,
-            spieltagObj.date,
-            spieltagObj.kursId,
-            spieltagObj.status,
-            "'" + String(spieltagObj.teilnehmerCsv),
-            spieltagObj.bruttoSieger || "",
-            spieltagObj.nettoSieger || ""
-        ]);
-
-        const tFlights = ssApp.getSheetByName("app_Flights");
-        flightsArray.forEach(function(f)
-        {
-            tFlights.appendRow([
-                f.id,
-                f.spieltagId,
-                "'" + String(f.spielerIdsCsv)
-            ]);
-        });
-
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-function updatePlayerHandicap(spielerId, newHcpOfficial, newHcpLie)
-{
-    try
-    {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        
-        const data = tSpieler.getDataRange().getValues();
-        let zeile = -1;
-
-        for (let i = 1; i < data.length; i++)
-        {
-            if (parseInt(data[i][0]) === parseInt(spielerId))
-            {
-                zeile = i + 1;
-                break;
-            }
-        }
-
-        if (zeile === -1)
-        {
-            return { success: false, error: "Spieler nicht in der Datenbank gefunden." };
-        }
-
-        tSpieler.getRange(zeile, 6).setValue(parseFloat(newHcpOfficial));
-        tSpieler.getRange(zeile, 7).setValue(parseInt(newHcpLie));
-        
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-function setPlayerPin(spielerId, rawPin, isFirstLogin)
-{
-    try
-    {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        const spielerData = tSpieler.getDataRange().getValues();
-
-        // === SERVER-SEITIGER CHECK (Nur prüfen, wenn es KEIN neuer Spieler bei der Registrierung ist) ===
-        if (rawPin === "4722" && isFirstLogin === false)
-        {
-            const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
-            let actingUserRole = "";
-            for (let i = 1; i < spielerData.length; i++)
-            {
-                if (String(spielerData[i][3]).trim().toLowerCase() === activeUserEmail)
-                {
-                    actingUserRole = String(spielerData[i][7]).trim();
-                    break;
-                }
-            }
-            if (actingUserRole !== "Admin")
-            {
-                return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen PINs zurücksetzen." };
-            }
-        }
-        // ==============================================================================================
-
-        const tPin = ssAdmin.getSheetByName("adm_Pin");
-        if (!tPin) return { success: false, error: "Tabelle 'adm_Pin' nicht gefunden." };
-
-        const salt = String(Utilities.getUuid()).trim();
-        const cleanPin = String(rawPin).trim();
-        
-        const combinedInput = cleanPin + salt;
-        const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
-        const hash = Utilities.base64Encode(digest);
-        const timestamp = new Date().toString();
-        
-        const forceChange = (isFirstLogin !== undefined) ? isFirstLogin : (cleanPin === "4722");
-
-        const data = tPin.getDataRange().getValues();
-        let spielerZeile = -1;
-
-        for (let i = 1; i < data.length; i++)
-        {
-            if (parseInt(data[i][0]) === parseInt(spielerId))
-            {
-                spielerZeile = i + 1;
-                break;
-            }
-        }
-
-        if (spielerZeile !== -1)
-        {
-            tPin.getRange(spielerZeile, 2).setValue(hash);
-            tPin.getRange(spielerZeile, 3).setValue(salt);
-            tPin.getRange(spielerZeile, 4).setValue(timestamp);
-            tPin.getRange(spielerZeile, 5).setValue(forceChange ? "TRUE" : "FALSE");
-        }
-        else
-        {
-            tPin.appendRow([parseInt(spielerId), hash, salt, timestamp, forceChange ? "TRUE" : "FALSE"]);
-        }
-
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-function verifyPlayerPin(spielerId, enteredPin)
-{
-    try
-    {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tPin = ssAdmin.getSheetByName("adm_Pin");
-        
-        if (!tPin) return { success: false, error: "Sicherheits-Tabelle 'adm_Pin' wurde nicht gefunden." };
-
-        const data = tPin.getDataRange().getValues();
-        let dbRecord = null;
-
-        for (let i = 1; i < data.length; i++)
-        {
-            if (parseInt(data[i][0]) === parseInt(spielerId))
-            {
-                dbRecord = {
-                    hash: String(data[i][1]).trim(),
-                    salt: String(data[i][2]).trim(),
-                    mustChange: String(data[i][4]).toUpperCase() === "TRUE"
-                };
-                break;
-            }
-        }
-
-        if (!dbRecord) return { success: false, error: "Für diesen Spieler wurde noch keine PIN festgelegt." };
-
-        const cleanEnteredPin = String(enteredPin).trim();
-        const combinedInput = cleanEnteredPin + dbRecord.salt;
-        const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
-        const computedHash = Utilities.base64Encode(digest);
-
-        if (computedHash === dbRecord.hash) 
-        {
-            return { success: true, mustChange: dbRecord.mustChange };
-        }
-        else 
-        {
-            return { success: false, error: "Falsche PIN! Bitte versuche es erneut." };
-        }
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-function changePlayerPinServer(spielerId, newPin)
-{
-    return setPlayerPin(spielerId, newPin, false);
-}
-
-/**
- * Beendet den Spieltag offiziell, friert die Sieger ein und aktualisiert
- * automatisch die berechneten LIE-Handicaps der Teilnehmer in 'adm_Spieler'.
- */
-function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpdatesArray)
-{
-    try
-    {
-        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
-        const tSpieltage = ssApp.getSheetByName("app_Spieltage");
-        
-        if (!tSpieltage)
-        {
-            return { success: false, error: "Tabelle 'app_Spieltage' wurde nicht gefunden." };
-        }
-
-        // 1. Spieltag-Status auf "Beendet" setzen
-        const dataSpieltage = tSpieltage.getDataRange().getValues();
-        let zeileSpieltag = -1;
-
-        for (let i = 1; i < dataSpieltage.length; i++)
-        {
-            if (String(dataSpieltage[i][0]).trim() === String(spieltagId).trim())
-            {
-                zeileSpieltag = i + 1;
-                break;
-            }
-        }
-
-        if (zeileSpieltag === -1)
-        {
-            return { success: false, error: "Spieltag nicht in der Datenbank gefunden." };
-        }
-
-        tSpieltage.getRange(zeileSpieltag, 4).setValue("Beendet");
-        tSpieltage.getRange(zeileSpieltag, 6).setValue(bruttoSieger);
-        tSpieltage.getRange(zeileSpieltag, 7).setValue(nettoSieger);
-
-        // 2. Automatische Handicap-Updates in 'adm_Spieler' schreiben
-        if (handicapUpdatesArray && handicapUpdatesArray.length > 0)
-        {
-            const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-            const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-            if (tSpieler)
-            {
-                const dataSpieler = tSpieler.getDataRange().getValues();
-                
-                handicapUpdatesArray.forEach(function(update)
-                {
-                    let zeileSpieler = -1;
-                    for (let j = 1; j < dataSpieler.length; j++)
-                    {
-                        if (String(dataSpieler[j][0]).trim() === String(update.spielerId).trim())
-                        {
-                            zeileSpieler = j + 1;
-                            break;
-                        }
-                    }
-
-                    if (zeileSpieler !== -1)
-                    {
-                        // Spalte G (Index 7) ist das 'hcpLIE' in der Tabelle
-                        tSpieler.getRange(zeileSpieler, 7).setValue(parseInt(update.newHcpLie));
-                    }
-                });
-            }
-        }
-        
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-function savePlayerServer(spielerObj)
-{
-    try
-    {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        
-        if (!tSpieler)
-        {
-            return { success: false, error: "Tabelle 'adm_Spieler' nicht gefunden." };
-        }
-
-        const data = tSpieler.getDataRange().getValues();
-        
-        // === NEU: SERVER-SEITIGER SICHERHEITS-CHECK ===
-        // Wir ermitteln die E-Mail des aktuell angemeldeten Google-Nutzers
-        const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
-        
-        // Wir suchen den agierenden Nutzer in der Master-Tabelle
-        let actingUserRole = "";
-        for (let i = 1; i < data.length; i++)
-        {
-            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail) // Spalte 4 ist die E-Mail
-            {
-                actingUserRole = String(data[i][7]).trim(); // Spalte 8 ist die Rolle
-                break;
-            }
-        }
-        
-        // Wenn der Nutzer kein Admin ist, wird die Aktion rigoros abgelehnt!
-        if (actingUserRole !== "Admin")
-        {
-            return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spielerprofile anlegen oder bearbeiten." };
-        }
-        // ==============================================
-
-        let zeile = -1;
-        for (let i = 1; i < data.length; i++)
-        {
-            if (String(data[i][0]).trim() === String(spielerObj.id).trim())
-            {
-                zeile = i + 1;
-                break;
-            }
-        }
-
-        if (spielerObj.isNew && zeile !== -1)
-        {
-            return { success: false, error: "Ein Spieler mit dieser ID existiert bereits!" };
-        }
-
-        const rowData = [
-            spielerObj.id,
-            spielerObj.name,
-            spielerObj.nickname,
-            spielerObj.email,
-            spielerObj.teeColor,
-            parseFloat(spielerObj.hcpOfficial) || 54.0,
-            parseInt(spielerObj.hcpLIE) || 54,
-            spielerObj.role
-        ];
-
-        if (zeile !== -1)
-        {
-            tSpieler.getRange(zeile, 1, 1, 8).setValues([rowData]);
-        }
-        else
-        {
-            tSpieler.appendRow(rowData);
-            setPlayerPin(spielerObj.id, "4722", true);
-        }
-
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-function deletePlayerServer(spielerId)
-{
-    try
-    {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        const data = tSpieler.getDataRange().getValues();
-
-        // === SERVER-SEITIGER CHECK ===
-        const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
-        let actingUserRole = "";
-        for (let i = 1; i < data.length; i++)
-        {
-            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail)
-            {
-                actingUserRole = String(data[i][7]).trim();
-                break;
-            }
-        }
-        if (actingUserRole !== "Admin")
-        {
-            return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spieler löschen." };
-        }
-        // =============================
-
-        let zeile = -1;
-        for (let i = 1; i < data.length; i++)
-        {
-            if (String(data[i][0]).trim() === String(spielerId).trim())
-            {
-                zeile = i + 1;
-                break;
-            }
-        }
-
-        if (zeile === -1)
-        {
-            return { success: false, error: "Spieler nicht in der Datenbank gefunden." };
-        }
-
-        tSpieler.deleteRow(zeile);
-        
-        const tPin = ssAdmin.getSheetByName("adm_Pin");
-        if (tPin)
-        {
-            const pinData = tPin.getDataRange().getValues();
-            for (let j = 1; j < pinData.length; j++)
-            {
-                if (String(pinData[j][0]).trim() === String(spielerId).trim())
-                {
-                    tPin.deleteRow(j + 1);
-                    break;
-                }
-            }
-        }
-
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-
-/**
- * Setzt den Status eines Spieltags im Sheet auf "Abgebrochen".
- */
-function cancelSpieltagServer(spieltagId)
-{
-    try
-    {
-        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
-        const tSpieltage = ssApp.getSheetByName("app_Spieltage");
-        
-        if (!tSpieltage)
-        {
-            return { success: false, error: "Tabelle 'app_Spieltage' wurde nicht gefunden." };
-        }
-
-        const data = tSpieltage.getDataRange().getValues();
-        let zeile = -1;
-
-        for (let i = 1; i < data.length; i++)
-        {
-            if (String(data[i][0]).trim() === String(spieltagId).trim())
-            {
-                zeile = i + 1;
-                break;
-            }
-        }
-
-        if (zeile === -1)
-        {
-            return { success: false, error: "Spieltag nicht in der Datenbank gefunden." };
-        }
-
-        // Spalte D ist der status (Index 4 -> getRange verlangt Spaltenindex 4)
-        tSpieltage.getRange(zeile, 4).setValue("Abgebrochen");
-        
-        SpreadsheetApp.flush();
-        return { success: true };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-/**
- * Holt die konfigurierte Polling-Rate (in Sekunden) aus den Script-Properties.
- * Fallback sind 60 Sekunden, falls nichts hinterlegt ist.
- */
-function getPollingRateProperty()
-{
-    try
-    {
-        const props = PropertiesService.getScriptProperties();
-        const rate = props.getProperty("pollingRate");
-        if (rate)
-        {
-            return parseInt(rate);
-        }
-    }
-    catch (err)
-    {
-        Logger.log("Fehler beim Lesen der pollingRate Eigenschaft: " + err.toString());
-    }
-    return 60; // Standard-Sicherheitsnetz
-}
-
-/**
- * Extrem ressourcenschonender Live-Kanal für das automatische Polling.
- * Lädt ausschließlich die aktuellen Scores des Spieltags.
- */
-function getLiveScoreUpdates(spieltagId)
-{
-    try
-    {
-        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
-        const tScoreCards = ssApp.getSheetByName("app_ScoreCards");
-        
-        if (!tScoreCards)
-        {
-            return { success: false, error: "Tabelle 'app_ScoreCards' nicht gefunden." };
-        }
-
-        const allScores = getSheetDataAsJson(tScoreCards);
-        
-        // Filtere nur die Scores, die wirklich zu diesem Spieltag gehören
-        const filteredScores = allScores.filter(function(sc)
-        {
-            return String(sc.spieltagId).trim() === String(spieltagId).trim();
-        });
-
-        const currentRate = getPollingRateProperty();
-
-        return {
-            success: true,
-            scoreCards: filteredScores,
-            pollingRate: currentRate
-        };
-    }
-    catch (err)
-    {
-        return { success: false, error: err.toString() };
-    }
-}
-
-
 
 
 ##### <Code.js>:
@@ -2751,25 +2058,21 @@ function getLiveScoreUpdates(spieltagId)
  * BSD (Allman) Style
  */
 
-function doGet(e)
-{
-    return HtmlService.createTemplateFromFile('Index')
-        .evaluate()
-        .setTitle('LIE Scorecard')
-        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-/**
- * Routing-Layer für POST-Anfragen von GitHub Pages
- */
-function doPost(e) 
+function doGet(e) 
 {
     try 
     {
-        // 1. JSON-Payload aus dem Request parsen
-        const body = JSON.parse(e.postData.contents);
+        // Prüfen, ob Daten da sind
+        if (!e || !e.parameter || !e.parameter.data)
+        {
+            return ContentService.createTextOutput("Backend aktiv. API bereit.")
+                .setMimeType(ContentService.MimeType.TEXT);
+        }
+
+        // 1. JSON-Payload aus dem GET-Parameter "data" parsen
+        const body = JSON.parse(e.parameter.data);
         const action = body.action;
+        const callback = e.parameter.callback;
         
         let result;
 
@@ -2828,52 +2131,144 @@ function doPost(e)
                 throw new Error("Unbekannte Action: " + action);
         }
 
-        // 3. Antwort als JSON zurückgeben (mit CORS-Headern)
-        return ContentService.createTextOutput(JSON.stringify({ success: true, ...result }))
-            .setMimeType(ContentService.MimeType.JSON)
-            .setHeader("Access-Control-Allow-Origin", "*");
+        const jsonResponse = JSON.stringify({ success: true, ...result });
+
+        // Wenn ein Callback mitgeliefert wurde, antworten wir im JSONP-Format
+        if (callback)
+        {
+            return ContentService.createTextOutput(callback + "(" + jsonResponse + ")")
+                .setMimeType(ContentService.MimeType.JAVASCRIPT);
+        }
+
+        return ContentService.createTextOutput(jsonResponse)
+            .setMimeType(ContentService.MimeType.JSON);
     } 
     catch (err) 
     {
-        // Fehlerbehandlung
-        return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.message }))
-            .setMimeType(ContentService.MimeType.JSON)
-            .setHeader("Access-Control-Allow-Origin", "*");
+        const errorResponse = JSON.stringify({ success: false, error: err.message });
+        
+        if (e && e.parameter && e.parameter.callback)
+        {
+            return ContentService.createTextOutput(e.parameter.callback + "(" + errorResponse + ")")
+                .setMimeType(ContentService.MimeType.JAVASCRIPT);
+        }
+
+        return ContentService.createTextOutput(errorResponse)
+            .setMimeType(ContentService.MimeType.JSON);
     }
 }
 
-/**
- * CORS Preflight Handler
- */
+function doPost(e) 
+{
+    // Weiterleitung an doGet, falls doch mal ein POST reinkommt
+    return doGet(e);
+}
+
 function doOptions(e) 
 {
-    return ContentService.createTextOutput("")
-        .setMimeType(ContentService.MimeType.TEXT)
-        .setHeader("Access-Control-Allow-Origin", "*")
-        .setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        .setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return ContentService.createTextOutput("OK")
+        .setMimeType(ContentService.MimeType.TEXT);
 }
 
 /**
- * Hilfsfunktion zum Laden der Konfiguration
+ * Konvertiert eine Tabelle in JSON, optional gefiltert nach einer Spalte und einem Wert.
+ * Inklusive Datums-Bereinigung und CSV-Rettungsanker.
  */
-function getSpreadsheetUrl(propertyName)
+function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
 {
-    const props = PropertiesService.getScriptProperties();
-    const url = props.getProperty(propertyName);
-    
-    if (!url)
+    if (!sheet) return [];
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    return rows.map(function(row) 
     {
-        throw new Error("Eigenschaft '" + propertyName + "' nicht gefunden!");
-    }
-    return url;
+        const obj = {};
+        headers.forEach(function(header, index) 
+        {
+            let val = row[index];
+            
+            // Datums-Bereinigung
+            if (val instanceof Date) 
+            {
+                val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd");
+            }
+            
+            // CSV-Rettungsanker
+            if ((header === "teilnehmerCsv" || header === "spielerIdsCsv") && val) 
+            {
+                let cleanStr = String(val).trim();
+                if (cleanStr !== "" && !cleanStr.includes(",") && /^\d+$/.test(cleanStr) && cleanStr.length > 3) 
+                {
+                    val = cleanStr.match(/.{1,3}/g).join(",");
+                } 
+                else 
+                {
+                    val = cleanStr;
+                }
+            }
+            obj[header] = val;
+        });
+        return obj;
+    }).filter(function(item) 
+    {
+        return filterCol === null || String(item[filterCol]).trim() === String(filterVal).trim();
+    });
 }
 
-
-function include(filename)
+/**
+ * Löscht alle Datensätze aus app_Spieltage, app_Flights und app_ScoreCards.
+ * Die Header-Zeilen (Zeile 1) bleiben dabei strikt erhalten.
+ */
+function clearTestDataBase()
 {
-    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+    Logger.log("=== START: DATENBANK-RESET FOR TESTING (CLEAR CONTENT MODE) ===");
+    try
+    {
+        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
+        const tablesToClear = ["app_Spieltage", "app_Flights", "app_ScoreCards"];
+        
+        tablesToClear.forEach(function(sheetName)
+        {
+            const sheet = ssApp.getSheetByName(sheetName);
+            if (!sheet)
+            {
+                Logger.log(`Hinweis: Blatt '${sheetName}' wurde nicht gefunden.`);
+                return;
+            }
+            
+            const lastRow = sheet.getLastRow();
+            const lastColumn = sheet.getLastColumn();
+            
+            if (lastRow > 1)
+            {
+                const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
+                dataRange.clearContent();
+                Logger.log(`Tabelle '${sheetName}': Daten erfolgreich geleert.`);
+            }
+            else
+            {
+                Logger.log(`Tabelle '${sheetName}': War bereits leer.`);
+            }
+        });
+        
+        SpreadsheetApp.flush();
+        Logger.log("=== ERFOLG: Datenbank komplett geleert! ===");
+        return { success: true };
+    }
+    catch (err)
+    {
+        Logger.log("FEHLER beim Zurücksetzen der Datenbank: " + err.toString());
+        return { success: false, error: err.toString() };
+    }
 }
+
+// ==========================================
+// CORE API-FUNKTIONEN
+// ==========================================
 
 function getInitialAppData()
 {
@@ -2881,7 +2276,6 @@ function getInitialAppData()
     try
     {
         debugLog.push("Verbinde mit Spreadsheets über Projekteigenschaften...");
-        // Dynamischer Abruf statt harter URLs
         const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
         const ssRef = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssRef"));
         const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
@@ -2939,6 +2333,7 @@ function getInitialAppData()
         };
     }
 }
+
 function saveLiveScores(scoresArray)
 {
     try
@@ -2956,37 +2351,11 @@ function saveLiveScores(scoresArray)
             return { success: false, error: "Tabelle 'app_ScoreCards' wurde nicht gefunden." };
         }
 
-        // Gesamten aktuellen Tabelleninhalt laden
-        let data = tScores.getDataRange().getValues();
-        let headers = data[0];
-        
-        // Falls Tabelle komplett neu ist, Header mit den neuen Spalten initialisieren
-        if (data.length === 1 && data[0][0] === "")
+        // Mappt jetzt alle 9 Spalten inklusive lady und puts auf das Sheet-Format
+        const rowsToAppend = scoresArray.map(function(item)
         {
-            headers = ["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts"];
-            tScores.getRange(1, 1, 1, 9).setValues([headers]);
-            data = [headers];
-        }
-
-        // Map für schnellen Zeilenzugriff anhand der ID aufbauen
-        const idRowMap = {};
-        for (let i = 1; i < data.length; i++)
-        {
-            const rowId = String(data[i][0]).trim();
-            if (rowId)
-            {
-                idRowMap[rowId] = i + 1; // Zeilenindex im Sheet (1-basiert)
-            }
-        }
-
-        // Neue oder zu aktualisierende Daten verarbeiten
-        scoresArray.forEach(function(item)
-        {
-            const uniqueId = String(item.id).trim();
-            
-            // Formatierung des Zeilen-Arrays (Länge: 9 Spalten)
-            const rowValues = [
-                uniqueId,
+            return [
+                String(item.id).trim(),
                 String(item.spieltagId).trim(),
                 parseInt(item.flightSeq) || 1,
                 String(item.spielerId).trim(),
@@ -2996,23 +2365,19 @@ function saveLiveScores(scoresArray)
                 item.lady ? "TRUE" : "FALSE",
                 parseInt(item.puts) !== undefined ? parseInt(item.puts) : 2
             ];
-
-            const bestehendeZeile = idRowMap[uniqueId];
-            if (bestehendeZeile)
-            {
-                // Existiert bereits -> Überschreiben! (Verhindert doppelte Einträge)
-                tScores.getRange(bestehendeZeile, 1, 1, 9).setValues([rowValues]);
-            }
-            else
-            {
-                // Neu -> Anhängen!
-                tScores.appendRow(rowValues);
-                // Map aktualisieren, falls im selben Payload Dubletten stecken
-                idRowMap[uniqueId] = tScores.getLastRow();
-            }
         });
 
+        let lastRow = tScores.getLastRow();
+        if (lastRow === 0)
+        {
+            tScores.appendRow(["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts"]);
+            lastRow = 1;
+        }
+        
+        // Bereich erweitert auf 9 Spalten Breite
+        tScores.getRange(lastRow + 1, 1, rowsToAppend.length, 9).setValues(rowsToAppend);
         SpreadsheetApp.flush();
+
         return { success: true };
     }
     catch (err)
@@ -3092,76 +2457,50 @@ function updatePlayerHandicap(spielerId, newHcpOfficial, newHcpLie)
     }
 }
 
-function setPlayerPin(spielerId, rawPin, isFirstLogin)
+function setPlayerPin(spielerId, newPin, isFirstLogin) 
 {
-    try
+    try 
     {
-        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
-        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
-        const spielerData = tSpieler.getDataRange().getValues();
-
-        // === SERVER-SEITIGER CHECK (Nur prüfen, wenn es KEIN neuer Spieler bei der Registrierung ist) ===
-        if (rawPin === "4722" && isFirstLogin === false)
-        {
-            const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
-            let actingUserRole = "";
-            for (let i = 1; i < spielerData.length; i++)
-            {
-                if (String(spielerData[i][3]).trim().toLowerCase() === activeUserEmail)
-                {
-                    actingUserRole = String(spielerData[i][7]).trim();
-                    break;
-                }
-            }
-            if (actingUserRole !== "Admin")
-            {
-                return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen PINs zurücksetzen." };
-            }
+        // Validierung der ID, damit niemals wieder #NUM! reingeschrieben wird
+        const cleanId = parseInt(spielerId);
+        if (isNaN(cleanId) || cleanId <= 0) {
+            throw new Error("Ungültige Spieler-ID übergeben: " + spielerId);
         }
-        // ==============================================================================================
 
+        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
         const tPin = ssAdmin.getSheetByName("adm_Pin");
         if (!tPin) return { success: false, error: "Tabelle 'adm_Pin' nicht gefunden." };
 
-        const salt = String(Utilities.getUuid()).trim();
-        const cleanPin = String(rawPin).trim();
-        
-        const combinedInput = cleanPin + salt;
+        const data = tPin.getDataRange().getValues();
+        const salt = Utilities.getUuid();
+        const combinedInput = String(newPin).trim() + salt;
         const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
         const hash = Utilities.base64Encode(digest);
-        const timestamp = new Date().toString();
         
-        const forceChange = (isFirstLogin !== undefined) ? isFirstLogin : (cleanPin === "4722");
+        const timestamp = new Date().toString();
+        const flagFirstLogin = isFirstLogin ? true : false;
 
-        const data = tPin.getDataRange().getValues();
-        let spielerZeile = -1;
-
-        for (let i = 1; i < data.length; i++)
+        // Suchen, ob der Spieler schon existiert (um ID-Duplikate zu vermeiden)
+        for (let i = 1; i < data.length; i++) 
         {
-            if (parseInt(data[i][0]) === parseInt(spielerId))
+            if (parseInt(data[i][0]) === cleanId) 
             {
-                spielerZeile = i + 1;
-                break;
+                // Aktualisieren statt neu anlegen
+                tPin.getRange(i + 1, 2).setValue(hash);
+                tPin.getRange(i + 1, 3).setValue(salt);
+                tPin.getRange(i + 1, 4).setValue(timestamp);
+                tPin.getRange(i + 1, 5).setValue(flagFirstLogin);
+                return { success: true };
             }
         }
 
-        if (spielerZeile !== -1)
-        {
-            tPin.getRange(spielerZeile, 2).setValue(hash);
-            tPin.getRange(spielerZeile, 3).setValue(salt);
-            tPin.getRange(spielerZeile, 4).setValue(timestamp);
-            tPin.getRange(spielerZeile, 5).setValue(forceChange ? "TRUE" : "FALSE");
-        }
-        else
-        {
-            tPin.appendRow([parseInt(spielerId), hash, salt, timestamp, forceChange ? "TRUE" : "FALSE"]);
-        }
-
-        SpreadsheetApp.flush();
+        // Falls er nicht existiert: Sauber als neue Zeile anhängen
+        tPin.appendRow([cleanId, hash, salt, timestamp, flagFirstLogin]);
         return { success: true };
-    }
-    catch (err)
+    } 
+    catch (err) 
     {
+        Logger.log("[setPlayerPin Error] " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
@@ -3175,7 +2514,7 @@ function verifyPlayerPin(spielerId, enteredPin)
         
         if (!tPin) return { success: false, error: "Sicherheits-Tabelle 'adm_Pin' wurde nicht gefunden." };
 
-        const data = tPin.getDataRange().getValues();
+        let data = tPin.getDataRange().getValues();
         let dbRecord = null;
 
         for (let i = 1; i < data.length; i++)
@@ -3191,7 +2530,22 @@ function verifyPlayerPin(spielerId, enteredPin)
             }
         }
 
-        if (!dbRecord) return { success: false, error: "Für diesen Spieler wurde noch keine PIN festgelegt." };
+        // Rettungsanker ohne Selbstaufruf: Direkt hier anlegen und verarbeiten
+        if (!dbRecord) 
+        {
+            Logger.log(`[PIN Guard] Keine PIN für Spieler ID ${spielerId} gefunden. Erzeuge Standard-PIN 4722...`);
+            setPlayerPin(spielerId, "4722", true);
+            
+            // Wenn die eingegebene PIN die 4722 ist, lassen wir ihn sofort durch zum Ändern
+            if (String(enteredPin).trim() === "4722")
+            {
+                return { success: true, mustChange: true };
+            }
+            else
+            {
+                return { success: false, error: "Initial-PIN generiert. Bitte verwende '4722' für den ersten Login." };
+            }
+        }
 
         const cleanEnteredPin = String(enteredPin).trim();
         const combinedInput = cleanEnteredPin + dbRecord.salt;
@@ -3218,10 +2572,6 @@ function changePlayerPinServer(spielerId, newPin)
     return setPlayerPin(spielerId, newPin, false);
 }
 
-/**
- * Beendet den Spieltag offiziell, friert die Sieger ein und aktualisiert
- * automatisch die berechneten LIE-Handicaps der Teilnehmer in 'adm_Spieler'.
- */
 function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpdatesArray)
 {
     try
@@ -3234,7 +2584,6 @@ function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpda
             return { success: false, error: "Tabelle 'app_Spieltage' wurde nicht gefunden." };
         }
 
-        // 1. Spieltag-Status auf "Beendet" setzen
         const dataSpieltage = tSpieltage.getDataRange().getValues();
         let zeileSpieltag = -1;
 
@@ -3256,7 +2605,6 @@ function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpda
         tSpieltage.getRange(zeileSpieltag, 6).setValue(bruttoSieger);
         tSpieltage.getRange(zeileSpieltag, 7).setValue(nettoSieger);
 
-        // 2. Automatische Handicap-Updates in 'adm_Spieler' schreiben
         if (handicapUpdatesArray && handicapUpdatesArray.length > 0)
         {
             const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
@@ -3279,7 +2627,6 @@ function closeSpieltagServer(spieltagId, bruttoSieger, nettoSieger, handicapUpda
 
                     if (zeileSpieler !== -1)
                     {
-                        // Spalte G (Index 7) ist das 'hcpLIE' in der Tabelle
                         tSpieler.getRange(zeileSpieler, 7).setValue(parseInt(update.newHcpLie));
                     }
                 });
@@ -3308,28 +2655,22 @@ function savePlayerServer(spielerObj)
         }
 
         const data = tSpieler.getDataRange().getValues();
-        
-        // === NEU: SERVER-SEITIGER SICHERHEITS-CHECK ===
-        // Wir ermitteln die E-Mail des aktuell angemeldeten Google-Nutzers
         const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
         
-        // Wir suchen den agierenden Nutzer in der Master-Tabelle
         let actingUserRole = "";
         for (let i = 1; i < data.length; i++)
         {
-            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail) // Spalte 4 ist die E-Mail
+            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail)
             {
-                actingUserRole = String(data[i][7]).trim(); // Spalte 8 ist die Rolle
+                actingUserRole = String(data[i][7]).trim();
                 break;
             }
         }
         
-        // Wenn der Nutzer kein Admin ist, wird die Aktion rigoros abgelehnt!
         if (actingUserRole !== "Admin")
         {
             return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spielerprofile anlegen oder bearbeiten." };
         }
-        // ==============================================
 
         let zeile = -1;
         for (let i = 1; i < data.length; i++)
@@ -3375,6 +2716,7 @@ function savePlayerServer(spielerObj)
         return { success: false, error: err.toString() };
     }
 }
+
 function deletePlayerServer(spielerId)
 {
     try
@@ -3383,7 +2725,6 @@ function deletePlayerServer(spielerId)
         const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
         const data = tSpieler.getDataRange().getValues();
 
-        // === SERVER-SEITIGER CHECK ===
         const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
         let actingUserRole = "";
         for (let i = 1; i < data.length; i++)
@@ -3398,7 +2739,6 @@ function deletePlayerServer(spielerId)
         {
             return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spieler löschen." };
         }
-        // =============================
 
         let zeile = -1;
         for (let i = 1; i < data.length; i++)
@@ -3440,10 +2780,6 @@ function deletePlayerServer(spielerId)
     }
 }
 
-
-/**
- * Setzt den Status eines Spieltags im Sheet auf "Abgebrochen".
- */
 function cancelSpieltagServer(spieltagId)
 {
     try
@@ -3473,9 +2809,7 @@ function cancelSpieltagServer(spieltagId)
             return { success: false, error: "Spieltag nicht in der Datenbank gefunden." };
         }
 
-        // Spalte D ist der status (Index 4 -> getRange verlangt Spaltenindex 4)
         tSpieltage.getRange(zeile, 4).setValue("Abgebrochen");
-        
         SpreadsheetApp.flush();
         return { success: true };
     }
@@ -3485,32 +2819,6 @@ function cancelSpieltagServer(spieltagId)
     }
 }
 
-/**
- * Holt die konfigurierte Polling-Rate (in Sekunden) aus den Script-Properties.
- * Fallback sind 60 Sekunden, falls nichts hinterlegt ist.
- */
-function getPollingRateProperty()
-{
-    try
-    {
-        const props = PropertiesService.getScriptProperties();
-        const rate = props.getProperty("pollingRate");
-        if (rate)
-        {
-            return parseInt(rate);
-        }
-    }
-    catch (err)
-    {
-        Logger.log("Fehler beim Lesen der pollingRate Eigenschaft: " + err.toString());
-    }
-    return 60; // Standard-Sicherheitsnetz
-}
-
-/**
- * Extrem ressourcenschonender Live-Kanal für das automatische Polling.
- * Lädt ausschließlich die aktuellen Scores des Spieltags.
- */
 function getLiveScoreUpdates(spieltagId)
 {
     try
@@ -3524,8 +2832,6 @@ function getLiveScoreUpdates(spieltagId)
         }
 
         const allScores = getSheetDataAsJson(tScoreCards);
-        
-        // Filtere nur die Scores, die wirklich zu diesem Spieltag gehören
         const filteredScores = allScores.filter(function(sc)
         {
             return String(sc.spieltagId).trim() === String(spieltagId).trim();
@@ -3545,7 +2851,46 @@ function getLiveScoreUpdates(spieltagId)
     }
 }
 
+// ==========================================
+// GLOBALE HILFSFUNKTIONEN (OHNE DUPLIKATE)
+// ==========================================
 
+function getSpreadsheetUrl(key)
+{
+    const props = PropertiesService.getScriptProperties();
+    const url = props.getProperty(key);
+    if (!url) 
+    {
+        throw new Error("Die Skripteigenschaft '" + key + "' (Spreadsheet-URL) ist nicht konfiguriert!");
+    }
+    return url;
+}
+
+function getPollingRateProperty()
+{
+    try
+    {
+        const props = PropertiesService.getScriptProperties();
+        const rate = props.getProperty("pollingRate");
+        if (rate)
+        {
+            return parseInt(rate);
+        }
+    }
+    catch (err)
+    {
+        Logger.log("Fehler beim Lesen der pollingRate Eigenschaft: " + err.toString());
+    }
+    return 60; 
+}
+
+
+##### <config.js>:
+----------------------------------------------------------------------
+// config.js
+const CONFIG = {
+    API_URL: "https://script.google.com/macros/s/AKfycbyekHOsFd_g0VlShuzfH1ObfbJzYGY7DaBnBvs80deWwGKQrq_uOarL43KvmkAzcxEEcQ/exec"
+  };
 
 
 ##### <index.html>:
@@ -3554,6 +2899,7 @@ function getLiveScoreUpdates(spieltagId)
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LIE Scorecard</title>
     <!-- Tailwind CSS & FontAwesome über CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
@@ -3575,25 +2921,29 @@ function getLiveScoreUpdates(spieltagId)
     <!-- App Shell Wrapper -->
     <div class="max-w-md mx-auto min-h-screen bg-white shadow-xl flex flex-col relative pb-20">
         
+        <!-- Header -->
         <header class="bg-emerald-700 text-white px-4 py-3 sticky top-0 z-40 shadow-md flex justify-between items-center">
             <h1 class="text-xl font-bold tracking-wide">LIE Scorecard</h1>
             <div class="flex items-center space-x-3">
-                <button id="global-refresh-btn" onclick="app.logic.refreshGlobalAppData()" class="text-white p-1 touch-target text-base opacity-80 hover:opacity-100 transition focus:outline-none">
+                <button id="global-refresh-btn" onclick="app.logic.refreshGlobalAppData()" class="text-white p-1 touch-target text-base opacity-80 hover:opacity-100 transition focus:outline-none" title="Daten aktualisieren">
                     <i id="global-refresh-icon" class="fas fa-sync-alt"></i>
                 </button>
-                <button id="header-action-btn" onclick="app.router.navigate('spieltag_neu')" class="hidden text-white p-1 touch-target text-lg">
+                <button id="header-action-btn" onclick="app.router.navigate('spieltag_neu')" class="hidden text-white p-1 touch-target text-lg" title="Runde anlegen">
                     <i class="fas fa-plus-circle"></i>
                 </button>
                 <span id="header-role-badge" class="flex items-center text-xs opacity-75"></span>
+                <button id="header-logout-btn" onclick="app.logic.logout()" class="hidden text-white opacity-80 hover:opacity-100 p-1 touch-target text-sm transition focus:outline-none" title="Abmelden">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
                 <div id="connection-status" class="w-3 h-3 rounded-full bg-emerald-400"></div>
             </div>
         </header>
 
+        <!-- Main Content Area -->
         <main id="app-container" class="flex-1 p-4">
             <!-- Splash Screen -->
             <div id="app-loading" class="flex flex-col items-center justify-center pt-12 space-y-6">
                 <div class="w-48 h-48 bg-stone-50 border border-stone-200 rounded-3xl p-2 shadow-md flex items-center justify-center overflow-hidden">
-                    <!-- Pfad zum Logo im img-Ordner -->
                     <img id="splash-logo" src="img/LIE_Logo II.jpeg" alt="LIE Logo" class="w-full h-full object-cover rounded-2xl" />
                 </div>
                 <div class="flex flex-col items-center space-y-2">
@@ -3603,18 +2953,59 @@ function getLiveScoreUpdates(spieltagId)
             </div>
         </main>
 
-        <!-- Mobile Nav Bar hier gelassen... -->
-        <!-- (Rest des HTMLs bleibt identisch zu deiner Vorlage) -->
+        <!-- Mobile Navigation Footer (Bottom Nav Bar) -->
+        <nav id="bottom-nav" class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-stone-200 py-2 px-3 flex justify-around items-center z-40 shadow-lg hidden">
+            <button id="nav-dash" onclick="app.router.navigate('dashboard')" class="nav-btn flex flex-col items-center text-stone-400 hover:text-emerald-600 transition px-2 py-1 touch-target">
+                <i class="fas fa-home text-base"></i>
+                <span class="text-[10px] mt-0.5">Home</span>
+            </button>
+            <button id="nav-rounds" onclick="app.router.navigate('spieltage')" class="nav-btn flex flex-col items-center text-stone-400 hover:text-emerald-600 transition px-2 py-1 touch-target">
+                <i class="fas fa-calendar-alt text-base"></i>
+                <span class="text-[10px] mt-0.5">Runden</span>
+            </button>
+            <button id="nav-players" onclick="app.router.navigate('spieler')" class="nav-btn flex flex-col items-center text-stone-400 hover:text-emerald-600 transition px-2 py-1 touch-target">
+                <i class="fas fa-users text-base"></i>
+                <span class="text-[10px] mt-0.5">Gruppe</span>
+            </button>
+            <button id="nav-help" onclick="app.router.navigate('help')" class="nav-btn flex flex-col items-center text-stone-400 hover:text-emerald-600 transition px-2 py-1 touch-target">
+                <i class="fas fa-question-circle text-base"></i>
+                <span class="text-[10px] mt-0.5">Hilfe</span>
+            </button>
+        </nav>
+
     </div>
 
-    <!-- Globale UI-Komponenten (Toasts/Modals...) -->
-    <!-- (Hier dein Toast/Confirm Modal HTML lassen) -->
+    <!-- Globaler Toast Container -->
+    <div id="global-toast-container" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-full max-w-sm px-4 pointer-events-none"></div>
 
+    <!-- Globales Confirmation Modal -->
+    <div id="global-confirm-modal" class="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs hidden flex items-center justify-center p-4">
+        <div id="confirm-modal-box" class="bg-white rounded-2xl max-w-xs w-full p-5 space-y-4 shadow-2xl transition-all duration-200 opacity-0 scale-95 border border-stone-100">
+            <div class="flex items-start space-x-3">
+                <div id="confirm-modal-icon-container" class="w-10 h-10 rounded-full flex items-center justify-center text-lg flex-shrink-0 bg-emerald-100 text-emerald-700">
+                    <i id="confirm-modal-icon" class="fas fa-question-circle text-sm"></i>
+                </div>
+                <div class="space-y-1">
+                    <h3 id="confirm-modal-title" class="font-bold text-stone-800 text-sm">Titel</h3>
+                    <p id="confirm-modal-message" class="text-stone-500 text-xs leading-relaxed">Nachricht</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-2">
+                <button id="confirm-modal-cancel" class="bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold py-2.5 rounded-xl text-xs transition">Abbrechen</button>
+                <button id="confirm-modal-submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-xs">Bestätigen</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- 1. Zuerst die Konfiguration laden -->
+    <script src="config.js?v=1.0"></script>
+    
     <!-- Einbinden aller JS-Module -->
     <script src="App_Core.js"></script>
     <script src="App_View_Help.js"></script>
     <script src="App_Router.js"></script>
-    <script src="App_Logic_Core.js"></script>
+    <script src="App_Logic_Core.js?v=3"></script>
     <script src="App_Start.js"></script>
     <script src="Bridge_Fix.js"></script>
     <script src="Views_Login.js"></script>
@@ -4410,7 +3801,13 @@ app.views.leaderboard = function(spieltagId, activeTab)
 
 ##### <Views_Login.js>:
 ----------------------------------------------------------------------
-// Kapselt die Login-Ansichten im app.views Namespace
+// =========================================================================
+// BMAssistent / LIE Scorecard - Login & PIN-Änderung Ansichten
+// Views_Login.js
+// BSD (Allman) Style
+// =========================================================================
+
+// Kapselt die Login-Ansicht im app.views Namespace
 app.views.login = function()
 {
     // Generiere die Optionen für das Spieler-Dropdown
@@ -4432,7 +3829,6 @@ app.views.login = function()
             <div class="bg-stone-50 border border-stone-200 rounded-2xl p-5 shadow-2xs space-y-4">
                 <div class="flex flex-col space-y-1">
                     <label class="text-xs font-bold text-stone-500 uppercase">Wer bist du?</label>
-                    <!-- IDs auf CamelCase geändert, passend zur App_Logic_Core.js -->
                     <select id="loginSpielerSelect" class="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 text-sm focus:border-emerald-600 outline-none shadow-3xs font-medium">
                         <option value="" disabled selected>Namen auswählen...</option>
                         ${spielerOptionen}
@@ -4440,21 +3836,107 @@ app.views.login = function()
                 </div>
 
                 <div class="flex flex-col space-y-1">
-                    <label class="text-xs font-bold text-stone-500 uppercase">Deine PIN</label>
-                    <!-- ID auf CamelCase geändert, passend zur App_Logic_Core.js -->
-                    <input type="password" id="loginPinInput" inputmode="numeric" pattern="[0-8]*" maxlength="4" placeholder="••••" class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-center text-xl tracking-widest font-black focus:border-emerald-600 outline-none shadow-3xs">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Deine PIN / E-Mail-Code</label>
+                    <input type="password" id="loginPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-center text-xl tracking-widest font-black focus:border-emerald-600 outline-none shadow-3xs">
                 </div>
 
-                <!-- 'event' explizit als Argument übergeben -->
                 <button onclick="app.logic.submitPin(event)" id="loginSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl transition text-sm shadow-xs mt-2 flex items-center justify-center space-x-2 touch-target">
                     <i class="fas fa-sign-in-alt"></i>
                     <span>Einloggen</span>
+                </button>
+
+                <div class="pt-2 text-center">
+                    <button type="button" onclick="app.logic.requestMailPin()" id="reqMailPinBtn" class="text-stone-500 hover:text-emerald-700 text-xs font-semibold underline transition">
+                        <i class="fas fa-paper-plane mr-1"></i> PIN vergessen / Code per Mail anfordern
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+};
+
+// Ansicht für die Zwangseingabe/Änderung einer persönlichen PIN
+app.views.pin_aendern = function()
+{
+    const user = app.state.currentUser;
+    const nickname = user ? user.nickname : "Golfer";
+
+    return `
+        <div class="space-y-6 pt-6 flex flex-col justify-center min-h-[70vh]">
+            <div class="text-center space-y-2">
+                <div class="w-16 h-16 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center text-2xl mx-auto shadow-2xs">
+                    <i class="fas fa-key"></i>
+                </div>
+                <h2 class="text-xl font-black text-stone-800 tracking-wide">PIN festlegen</h2>
+                <p class="text-xs text-stone-400 max-w-xs mx-auto">Hallo ${nickname}! Bitte vergebe deine persönliche, 4-stellige PIN für künftige Logins.</p>
+            </div>
+
+            <div class="bg-stone-50 border border-stone-200 rounded-2xl p-5 shadow-2xs space-y-4">
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">Neue PIN (min. 4 Zahlen)</label>
+                    <input type="password" id="pin-new-1" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••" class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-center text-xl tracking-widest font-black focus:border-emerald-600 outline-none shadow-3xs">
+                </div>
+
+                <div class="flex flex-col space-y-1">
+                    <label class="text-xs font-bold text-stone-500 uppercase">PIN wiederholen</label>
+                    <input type="password" id="pin-new-2" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••" class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-center text-xl tracking-widest font-black focus:border-emerald-600 outline-none shadow-3xs">
+                </div>
+
+                <button onclick="app.logic.changePin()" id="change-pin-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl transition text-sm shadow-xs mt-2 flex items-center justify-center space-x-2 touch-target">
+                    <i class="fas fa-save"></i>
+                    <span>PIN dauerhaft speichern</span>
                 </button>
             </div>
         </div>
     `;
 };
 
+// Hilfsfunktion zum Anfordern des Einmal-Codes im Frontend
+app.logic.requestMailPin = function()
+{
+    const spielerId = document.getElementById('loginSpielerSelect')?.value;
+
+    if (!spielerId)
+    {
+        app.logic.showToast("Bitte wähle zuerst deinen Namen im Dropdown aus!", "info");
+        return;
+    }
+
+    const btn = document.getElementById('reqMailPinBtn');
+    if (btn)
+    {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i> Sende E-Mail...`;
+    }
+
+    app.logic.apiRequest('requestTempPin', { spielerId: spielerId })
+        .then(function(response)
+        {
+            if (response && response.success)
+            {
+                app.logic.showToast("Einmal-Code per E-Mail gesendet! Bitte prüfe dein Postfach.", "success");
+            }
+            else
+            {
+                app.logic.showToast("Fehler beim Senden: " + (response.error || "Unbekannt"), "error");
+            }
+
+            if (btn)
+            {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-paper-plane mr-1"></i> PIN vergessen / Code per Mail anfordern`;
+            }
+        })
+        .catch(function(err)
+        {
+            app.logic.showToast("Netzwerkfehler: " + err.message, "error");
+            if (btn)
+            {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-paper-plane mr-1"></i> PIN vergessen / Code per Mail anfordern`;
+            }
+        });
+};
 
 
 ##### <Views_ScoreEingabe.js>:
