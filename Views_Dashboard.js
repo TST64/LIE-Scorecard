@@ -1,6 +1,6 @@
 // =========================================================================
 // BMAssistent / LIE Scorecard - Dashboard Ansicht
-// Views_Dashboard.html
+// Views_Dashboard.js
 // BSD (Allman) Style
 // =========================================================================
 
@@ -10,8 +10,21 @@ app.views.dashboard = function()
     const nickname = user ? user.nickname : "Golfer";
     const rolle = user ? user.role : "Spieler";
     
-    // Ermitteln, ob es gerade eine aktive Runde gibt
-    const aktiveRunde = app.state.spieltage ? app.state.spieltage.find(function(st) { return st.status === 'Aktiv'; }) : null;
+    // Find active match excluding soft-deleted rounds
+    const aktiveRunde = app.state.spieltage ? app.state.spieltage.find(function(st) 
+    { 
+        if (!st) 
+        {
+            return false;
+        }
+
+        const isDel = st.istGeloescht === true || 
+                      String(st.istGeloescht).toUpperCase() === "TRUE" || 
+                      st.istGelöscht === true || 
+                      String(st.istGelöscht).toUpperCase() === "TRUE";
+
+        return st.status === 'Aktiv' && !isDel; 
+    }) : null;
     
     let activeRoundCardHtml = "";
     if (aktiveRunde)
@@ -19,7 +32,7 @@ app.views.dashboard = function()
         const kurs = app.state.kurse.find(function(k) { return String(k.id) === String(aktiveRunde.kursId); });
         const platz = kurs ? app.state.golfplaetze.find(function(p) { return String(p.id) === String(kurs.platzId); }) : null;
         
-        // Prüfen, in welchem Flight der eingeloggte Spieler zugewiesen ist
+        // Check flight assignment for active user
         const meinFlight = app.state.flights ? app.state.flights.find(function(f) 
         {
             if (f.spieltagId !== aktiveRunde.id) return false;
@@ -66,9 +79,7 @@ app.views.dashboard = function()
         `;
     }
 
-    // =========================================================================
-    // STATISTIK-BERECHNUNG (LIVE AUS DEM STATE)
-    // =========================================================================
+    // Calculate personal stats from application state
     let gespielteRundenCount = 0;
     let besterNettoScore = 0;
     let besteBruttoRunde = "-";
@@ -76,15 +87,23 @@ app.views.dashboard = function()
 
     if (user && app.state.spieltage && app.state.scoreCards)
     {
-        // Alle beendeten Spieltage filtern, an denen der Spieler teilgenommen hat
+        // Filter finished rounds where user participated
         const beendeteTeilgenommen = app.state.spieltage.filter(function(st)
         {
             if (st.status !== 'Beendet') return false;
+            
+            const isDel = st.istGeloescht === true || 
+                          String(st.istGeloescht).toUpperCase() === "TRUE" || 
+                          st.istGelöscht === true || 
+                          String(st.istGelöscht).toUpperCase() === "TRUE";
+
+            if (isDel) return false;
+
             const ids = String(st.teilnehmerCsv || "").split(',').map(function(id) { return id.trim(); });
             return ids.includes(String(user.id).trim());
         });
 
-        // Sortiere chronologisch (älteste zuerst für die Trend-Ermittlung)
+        // Sort chronologically
         beendeteTeilgenommen.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
         gespielteRundenCount = beendeteTeilgenommen.length;
 
@@ -122,7 +141,7 @@ app.views.dashboard = function()
                 }
             });
 
-            // Nur vollständig gespielte Runden werten
+            // Evaluate complete rounds only
             if (gespielteBahnenInRunde >= maxBahnen && maxBahnen > 0)
             {
                 if (rundenNettoTotal > besterNettoScore)
@@ -142,7 +161,7 @@ app.views.dashboard = function()
 
     const netRecDisplay = besterNettoScore > 0 ? `${besterNettoScore} Pkt` : "-";
 
-    // Zusätzlicher Hinweistext für Privilegierte Rollen (Admin / Spielleiter)
+    // Hint banner for Admin and Spielleiter
     let adminHintHtml = "";
     if (rolle === "Admin" || rolle === "Spielleiter")
     {
@@ -178,7 +197,7 @@ app.views.dashboard = function()
                 ${activeRoundCardHtml}
             </div>
 
-            <!-- NEU: Persönliche Statistiken Grid -->
+            <!-- Persönliche Statistiken Grid -->
             <div class="space-y-2">
                 <h4 class="text-xs font-bold text-stone-400 uppercase tracking-wider px-1">Deine LIE-Karriere</h4>
                 <div class="grid grid-cols-2 gap-3">

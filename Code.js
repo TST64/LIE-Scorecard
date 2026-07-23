@@ -8,21 +8,21 @@ function doGet(e)
 {
     try 
     {
-        // Prüfen, ob Daten da sind
+        // Check if query parameters exist
         if (!e || !e.parameter || !e.parameter.data)
         {
             return ContentService.createTextOutput("Backend aktiv. API bereit.")
                 .setMimeType(ContentService.MimeType.TEXT);
         }
 
-        // 1. JSON-Payload aus dem GET-Parameter "data" parsen
+        // 1. Parse JSON payload from GET parameter "data"
         const body = JSON.parse(e.parameter.data);
         const action = body.action;
         const callback = e.parameter.callback;
         
         let result;
 
-        // 2. Routing: Welche Funktion soll ausgeführt werden?
+        // 2. Routing: Execute corresponding action function
         switch (action) 
         {
             case 'getInitialAppData':
@@ -35,6 +35,10 @@ function doGet(e)
 
             case 'verifyPlayerPin':
                 result = verifyPlayerPin(body.spielerId, body.pin);
+                break;
+                
+            case 'requestTempPin':
+                result = requestTempPin(body.spielerId);
                 break;
                 
             case 'changePlayerPinServer':
@@ -73,13 +77,17 @@ function doGet(e)
                 result = getLiveScoreUpdates(body.spieltagId);
                 break;
 
+            case 'softDeleteSpieltagServer':
+                result = softDeleteSpieltagServer(body.spieltagId);
+                break;
+
             default:
                 throw new Error("Unbekannte Action: " + action);
         }
 
         const jsonResponse = JSON.stringify({ success: true, ...result });
 
-        // Wenn ein Callback mitgeliefert wurde, antworten wir im JSONP-Format
+        // Respond with JSONP format if callback is provided
         if (callback)
         {
             return ContentService.createTextOutput(callback + "(" + jsonResponse + ")")
@@ -106,7 +114,7 @@ function doGet(e)
 
 function doPost(e) 
 {
-    // Weiterleitung an doGet, falls doch mal ein POST reinkommt
+    // Forward POST requests directly to doGet
     return doGet(e);
 }
 
@@ -117,8 +125,7 @@ function doOptions(e)
 }
 
 /**
- * Konvertiert eine Tabelle in JSON, optional gefiltert nach einer Spalte und einem Wert.
- * Inklusive Datums-Bereinigung und CSV-Rettungsanker.
+ * Converts a sheet into JSON with optional column/value filtering.
  */
 function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
 {
@@ -137,13 +144,13 @@ function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
         {
             let val = row[index];
             
-            // Datums-Bereinigung
+            // Format dates properly
             if (val instanceof Date) 
             {
                 val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd");
             }
             
-            // CSV-Rettungsanker
+            // CSV fallback logic for IDs
             if ((header === "teilnehmerCsv" || header === "spielerIdsCsv") && val) 
             {
                 let cleanStr = String(val).trim();
@@ -166,8 +173,7 @@ function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
 }
 
 /**
- * Löscht alle Datensätze aus app_Spieltage, app_Flights und app_ScoreCards.
- * Die Header-Zeilen (Zeile 1) bleiben dabei strikt erhalten.
+ * Clears all data rows from app_Spieltage, app_Flights, and app_ScoreCards.
  */
 function clearTestDataBase()
 {
@@ -213,7 +219,7 @@ function clearTestDataBase()
 }
 
 // ==========================================
-// CORE API-FUNKTIONEN
+// CORE API FUNCTIONS
 // ==========================================
 
 function getInitialAppData()
@@ -297,7 +303,7 @@ function saveLiveScores(scoresArray)
             return { success: false, error: "Tabelle 'app_ScoreCards' wurde nicht gefunden." };
         }
 
-        // Mappt jetzt alle 9 Spalten inklusive lady und puts auf das Sheet-Format
+        // Map 10 columns including lady, puts, and maxscore
         const rowsToAppend = scoresArray.map(function(item)
         {
             return [
@@ -309,19 +315,20 @@ function saveLiveScores(scoresArray)
                 parseInt(item.strokes),
                 parseInt(item.strokesGiven) || 0,
                 item.lady ? "TRUE" : "FALSE",
-                parseInt(item.puts) !== undefined ? parseInt(item.puts) : 2
+                parseInt(item.puts) !== undefined ? parseInt(item.puts) : 2,
+                item.maxscore ? "TRUE" : "FALSE"
             ];
         });
 
         let lastRow = tScores.getLastRow();
         if (lastRow === 0)
         {
-            tScores.appendRow(["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts"]);
+            tScores.appendRow(["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts", "maxscore"]);
             lastRow = 1;
         }
         
-        // Bereich erweitert auf 9 Spalten Breite
-        tScores.getRange(lastRow + 1, 1, rowsToAppend.length, 9).setValues(rowsToAppend);
+        // Write batch rows expanded to 10 columns
+        tScores.getRange(lastRow + 1, 1, rowsToAppend.length, 10).setValues(rowsToAppend);
         SpreadsheetApp.flush();
 
         return { success: true };
@@ -407,7 +414,6 @@ function setPlayerPin(spielerId, newPin, isFirstLogin)
 {
     try 
     {
-        // Validierung der ID, damit niemals wieder #NUM! reingeschrieben wird
         const cleanId = parseInt(spielerId);
         if (isNaN(cleanId) || cleanId <= 0) {
             throw new Error("Ungültige Spieler-ID übergeben: " + spielerId);
@@ -426,22 +432,26 @@ function setPlayerPin(spielerId, newPin, isFirstLogin)
         const timestamp = new Date().toString();
         const flagFirstLogin = isFirstLogin ? true : false;
 
-        // Suchen, ob der Spieler schon existiert (um ID-Duplikate zu vermeiden)
+        // Header: spielerId | pinHash | salt | updatedAt | mustChange | failedAttempts | pendingPinHash | pendingSalt
         for (let i = 1; i < data.length; i++) 
         {
             if (parseInt(data[i][0]) === cleanId) 
             {
-                // Aktualisieren statt neu anlegen
                 tPin.getRange(i + 1, 2).setValue(hash);
                 tPin.getRange(i + 1, 3).setValue(salt);
                 tPin.getRange(i + 1, 4).setValue(timestamp);
                 tPin.getRange(i + 1, 5).setValue(flagFirstLogin);
+                tPin.getRange(i + 1, 6).setValue(0); // Reset failed attempts
+                tPin.getRange(i + 1, 7).setValue(""); // Clear pending hash
+                tPin.getRange(i + 1, 8).setValue(""); // Clear pending salt
+                SpreadsheetApp.flush();
                 return { success: true };
             }
         }
 
-        // Falls er nicht existiert: Sauber als neue Zeile anhängen
-        tPin.appendRow([cleanId, hash, salt, timestamp, flagFirstLogin]);
+        // Append new record for 8 columns
+        tPin.appendRow([cleanId, hash, salt, timestamp, flagFirstLogin, 0, "", ""]);
+        SpreadsheetApp.flush();
         return { success: true };
     } 
     catch (err) 
@@ -461,54 +471,200 @@ function verifyPlayerPin(spielerId, enteredPin)
         if (!tPin) return { success: false, error: "Sicherheits-Tabelle 'adm_Pin' wurde nicht gefunden." };
 
         let data = tPin.getDataRange().getValues();
+        let zeileIndex = -1;
         let dbRecord = null;
 
         for (let i = 1; i < data.length; i++)
         {
             if (parseInt(data[i][0]) === parseInt(spielerId))
             {
+                zeileIndex = i + 1;
                 dbRecord = {
-                    hash: String(data[i][1]).trim(),
+                    pinHash: String(data[i][1]).trim(),
                     salt: String(data[i][2]).trim(),
-                    mustChange: String(data[i][4]).toUpperCase() === "TRUE"
+                    mustChange: String(data[i][4]).toUpperCase() === "TRUE",
+                    failedAttempts: parseInt(data[i][5]) || 0,
+                    pendingPinHash: String(data[i][6]).trim(),
+                    pendingSalt: String(data[i][7]).trim()
                 };
                 break;
             }
         }
 
-        // Rettungsanker ohne Selbstaufruf: Direkt hier anlegen und verarbeiten
+        // Erst-Anmeldung ohne bestehenden Record -> PIN per E-Mail generieren
         if (!dbRecord) 
         {
-            Logger.log(`[PIN Guard] Keine PIN für Spieler ID ${spielerId} gefunden. Erzeuge Standard-PIN 4722...`);
-            setPlayerPin(spielerId, "4722", true);
-            
-            // Wenn die eingegebene PIN die 4722 ist, lassen wir ihn sofort durch zum Ändern
-            if (String(enteredPin).trim() === "4722")
+            Logger.log(`[PIN Guard] Keine PIN für Spieler ID ${spielerId} vorhanden. Generiere Erst-PIN per Mail...`);
+            const mailResult = requestTempPin(spielerId);
+            if (mailResult.success)
             {
-                return { success: true, mustChange: true };
+                return { success: false, isFirstLoginEmail: true, error: "Ein Bestätigungs-Code wurde an deine hinterlegte E-Mail-Adresse gesendet. Bitte schaue in dein Postfach!" };
             }
             else
             {
-                return { success: false, error: "Initial-PIN generiert. Bitte verwende '4722' für den ersten Login." };
+                return { success: false, error: mailResult.error };
             }
         }
 
         const cleanEnteredPin = String(enteredPin).trim();
-        const combinedInput = cleanEnteredPin + dbRecord.salt;
-        const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
-        const computedHash = Utilities.base64Encode(digest);
 
-        if (computedHash === dbRecord.hash) 
+        // 1. ZUERST PRÜFEN: Passt die Eingabe zum ausstehenden E-Mail-Code (Entsperrung/Reset)?
+        if (dbRecord.pendingPinHash && dbRecord.pendingSalt)
         {
-            return { success: true, mustChange: dbRecord.mustChange };
+            const combinedTemp = cleanEnteredPin + dbRecord.pendingSalt;
+            const digestTemp = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedTemp, Utilities.Charset.UTF_8);
+            const computedTempHash = Utilities.base64Encode(digestTemp);
+
+            if (computedTempHash === dbRecord.pendingPinHash)
+            {
+                // Temp-PIN stimmt -> Konto entsperren, zur primären PIN befördern & PIN-Änderung erzwingen
+                const timestamp = new Date().toString();
+                tPin.getRange(zeileIndex, 2).setValue(dbRecord.pendingPinHash);
+                tPin.getRange(zeileIndex, 3).setValue(dbRecord.pendingSalt);
+                tPin.getRange(zeileIndex, 4).setValue(timestamp);
+                tPin.getRange(zeileIndex, 5).setValue(true); // mustChange = true
+                tPin.getRange(zeileIndex, 6).setValue(0);    // failedAttempts = 0 (Entsperrt!)
+                tPin.getRange(zeileIndex, 7).setValue("");   // pending clear
+                tPin.getRange(zeileIndex, 8).setValue("");   // pending clear
+                SpreadsheetApp.flush();
+
+                return { success: true, mustChange: true };
+            }
         }
-        else 
+
+        // 2. ERST DANACH PRÜFEN: Ist das Konto aktuell wegen 3 Fehlversuchen gesperrt?
+        if (dbRecord.failedAttempts >= 3)
         {
-            return { success: false, error: "Falsche PIN! Bitte versuche es erneut." };
+            return { 
+                success: false, 
+                locked: true, 
+                error: "3-mal falsche PIN eingegeben! Bitte fordere über den Button unten eine neue PIN per E-Mail an." 
+            };
         }
+
+        // 3. PRÜFEN: Passt die Eingabe zur bisherigen Haupt-PIN?
+        if (dbRecord.pinHash && dbRecord.salt)
+        {
+            const combinedInput = cleanEnteredPin + dbRecord.salt;
+            const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
+            const computedHash = Utilities.base64Encode(digest);
+
+            if (computedHash === dbRecord.pinHash) 
+            {
+                // Login erfolgreich -> Fehlversuche zurücksetzen
+                tPin.getRange(zeileIndex, 6).setValue(0);
+                SpreadsheetApp.flush();
+                return { success: true, mustChange: dbRecord.mustChange };
+            }
+        }
+
+        // PIN war falsch -> failedAttempts um 1 erhöhen
+        const newAttempts = dbRecord.failedAttempts + 1;
+        tPin.getRange(zeileIndex, 6).setValue(newAttempts);
+        SpreadsheetApp.flush();
+
+        if (newAttempts >= 3)
+        {
+            return { 
+                success: false, 
+                locked: true, 
+                error: "3-mal falsche PIN eingegeben! Dein Konto wurde gesperrt. Fordere eine neue PIN per E-Mail an." 
+            };
+        }
+
+        return { 
+            success: false, 
+            error: `Falsche PIN! (Versuch ${newAttempts} von 3)` 
+        };
     }
     catch (err)
     {
+        return { success: false, error: err.toString() };
+    }
+}
+
+/**
+ * Erstellt eine zufällige 6-stellige Temp-PIN und versendet sie per Mail an den Spieler.
+ */
+function requestTempPin(spielerId)
+{
+    try
+    {
+        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
+        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
+        const tPin = ssAdmin.getSheetByName("adm_Pin");
+
+        if (!tSpieler || !tPin)
+        {
+            return { success: false, error: "Tabellen 'adm_Spieler' oder 'adm_Pin' wurden nicht gefunden." };
+        }
+
+        // Spieler-E-Mail und Namen ermitteln
+        const spielerData = tSpieler.getDataRange().getValues();
+        let spielerEmail = "";
+        let spielerName = "";
+
+        for (let i = 1; i < spielerData.length; i++)
+        {
+            if (parseInt(spielerData[i][0]) === parseInt(spielerId))
+            {
+                spielerName = String(spielerData[i][2] || spielerData[i][1]).trim(); // Nickname oder Name
+                spielerEmail = String(spielerData[i][3]).trim();
+                break;
+            }
+        }
+
+        if (!spielerEmail || !spielerEmail.includes("@"))
+        {
+            return { success: false, error: "Für diesen Spieler ist keine gültige E-Mail-Adresse hinterlegt!" };
+        }
+
+        // Zufällige 6-stellige Temp-PIN generieren
+        const tempPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Salt & Hash erzeugen
+        const salt = Utilities.getUuid();
+        const combinedInput = tempPin + salt;
+        const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
+        const hash = Utilities.base64Encode(digest);
+
+        // In adm_Pin eintragen (Spalten G & H für pendingPinHash / pendingSalt)
+        const pinData = tPin.getDataRange().getValues();
+        let zeileIndex = -1;
+
+        for (let j = 1; j < pinData.length; j++)
+        {
+            if (parseInt(pinData[j][0]) === parseInt(spielerId))
+            {
+                zeileIndex = j + 1;
+                break;
+            }
+        }
+
+        if (zeileIndex !== -1)
+        {
+            tPin.getRange(zeileIndex, 7).setValue(hash);
+            tPin.getRange(zeileIndex, 8).setValue(salt);
+        }
+        else
+        {
+            // Erst-Eintrag für neuen Spieler
+            tPin.appendRow([parseInt(spielerId), "", "", new Date().toString(), true, 0, hash, salt]);
+        }
+
+        SpreadsheetApp.flush();
+
+        // E-Mail versenden
+        const subject = "Dein Einmal-Code für die LIE Scorecard";
+        const bodyText = `Hallo ${spielerName},\n\ndein Einmal-Code für die Anforderung einer neuen PIN lautet: ${tempPin}\n\nBitte gib diesen Code in der LIE Scorecard App ein. Deine bisherige PIN bleibt solange gültig, bis du dich mit diesem Code anmeldest.\n\nSportliche Grüße,\nDein LIE Scorecard Team`;
+        
+        MailApp.sendEmail(spielerEmail, subject, bodyText);
+
+        return { success: true };
+    }
+    catch (err)
+    {
+        Logger.log("[requestTempPin Error] " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
@@ -601,22 +757,6 @@ function savePlayerServer(spielerObj)
         }
 
         const data = tSpieler.getDataRange().getValues();
-        const activeUserEmail = String(Session.getActiveUser().getEmail()).trim().toLowerCase();
-        
-        let actingUserRole = "";
-        for (let i = 1; i < data.length; i++)
-        {
-            if (String(data[i][3]).trim().toLowerCase() === activeUserEmail)
-            {
-                actingUserRole = String(data[i][7]).trim();
-                break;
-            }
-        }
-        
-        if (actingUserRole !== "Admin")
-        {
-            return { success: false, error: "Berechtigung verweigert! Nur Administratoren dürfen Spielerprofile anlegen oder bearbeiten." };
-        }
 
         let zeile = -1;
         for (let i = 1; i < data.length; i++)
@@ -798,7 +938,7 @@ function getLiveScoreUpdates(spieltagId)
 }
 
 // ==========================================
-// GLOBALE HILFSFUNKTIONEN (OHNE DUPLIKATE)
+// GLOBAL HELPER FUNCTIONS
 // ==========================================
 
 function getSpreadsheetUrl(key)
@@ -828,4 +968,58 @@ function getPollingRateProperty()
         Logger.log("Fehler beim Lesen der pollingRate Eigenschaft: " + err.toString());
     }
     return 60; 
+}
+
+
+
+function softDeleteSpieltagServer(spieltagId)
+{
+    try
+    {
+        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
+        const tSpieltage = ssApp.getSheetByName("app_Spieltage");
+        
+        if (!tSpieltage)
+        {
+            return { success: false, error: "Tabelle 'app_Spieltage' nicht gefunden." };
+        }
+
+        const data = tSpieltage.getDataRange().getValues();
+        const headers = data[0];
+        
+        // Suche die Spalte "istGeloescht" (oder "istGelöscht")
+        let delColIndex = headers.findIndex(function(h) { 
+            return h.trim() === "istGeloescht" || h.trim() === "istGelöscht"; 
+        });
+
+        if (delColIndex === -1)
+        {
+            return { success: false, error: "Spalte 'istGeloescht' nicht in der Tabelle gefunden!" };
+        }
+
+        let zeile = -1;
+        for (let i = 1; i < data.length; i++)
+        {
+            if (String(data[i][0]).trim() === String(spieltagId).trim())
+            {
+                zeile = i + 1;
+                break;
+            }
+        }
+
+        if (zeile === -1)
+        {
+            return { success: false, error: "Spieltag nicht gefunden." };
+        }
+
+        // Setze den Wert in der entsprechenden Spalte auf TRUE
+        tSpieltage.getRange(zeile, delColIndex + 1).setValue("TRUE");
+        SpreadsheetApp.flush();
+
+        return { success: true };
+    }
+    catch (err)
+    {
+        return { success: false, error: err.toString() };
+    }
 }

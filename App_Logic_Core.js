@@ -1437,6 +1437,38 @@ app.logic =
         );
     },
 
+    softDeleteSpieltag: function(spieltagId)
+    {
+        app.logic.showConfirm(
+            "Spieltag löschen?", 
+            "Möchtest du diesen Spieltag wirklich löschen? Er wird für alle Teilnehmer ausgeblendet.", 
+            "danger", 
+            function() 
+            {
+                app.logic.apiRequest('softDeleteSpieltagServer', { spieltagId: spieltagId })
+                    .then(function(response)
+                    {
+                        if (response && response.success)
+                        {
+                            // Lokalen State direkt aktualisieren
+                            const st = app.state.spieltage.find(function(s) { return String(s.id).trim() === String(spieltagId).trim(); });
+                            if (st)
+                            {
+                                st.istGeloescht = true;
+                            }
+    
+                            app.logic.showToast("Spieltag erfolgreich gelöscht.", "success");
+                            app.router.navigate('spieltage');
+                        }
+                        else
+                        {
+                            app.logic.showToast("Fehler beim Löschen: " + (response ? response.error : "Unbekannt"), "error");
+                        }
+                    });
+            }
+        );
+    },
+
     // =========================================================================
     // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
     // =========================================================================

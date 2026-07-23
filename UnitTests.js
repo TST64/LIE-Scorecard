@@ -56,3 +56,9 @@ function UT_diagnoseAndWritePins()
         Logger.log("KRITISCHER FEHLER IM TESTLAUF: " + err.toString());
     }
 }
+
+function UT_requestTempPin()
+{
+  let a = requestTempPin(101);
+}
+
