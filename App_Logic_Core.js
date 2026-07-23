@@ -44,7 +44,6 @@ google.script.run = new Proxy(google.script.run, {
 // =========================================================================
 app.logic = 
 {
-    const API_URL = CONFIG.API_URL;
     // Die neue API-Schnittstelle über JSONP (HTTP GET)
     apiRequest: function(action, payload = {})
     {
@@ -52,6 +51,11 @@ app.logic =
 
         return new Promise((resolve, reject) => 
         {
+            // Hier greifst du direkt auf CONFIG.API_URL zu:
+            if (typeof CONFIG === "undefined" || !CONFIG.API_URL) 
+            {
+                console.error("[API Error] CONFIG oder CONFIG.API_URL ist nicht definiert!");
+            }
             const callbackName = "gas_callback_" + Math.random().toString(36).substring(2, 15);
             
             window[callbackName] = function(data) 
