@@ -51,11 +51,14 @@ app.logic =
 
         return new Promise((resolve, reject) => 
         {
-            // Hier greifst du direkt auf CONFIG.API_URL zu:
+            // Sichere Prüfung: Abbrechen, falls CONFIG fehlt
             if (typeof CONFIG === "undefined" || !CONFIG.API_URL) 
             {
                 console.error("[API Error] CONFIG oder CONFIG.API_URL ist nicht definiert!");
+                app.logic.showToast("Konfigurationsfehler: API_URL fehlt", "error");
+                return resolve({ success: false, error: "CONFIG fehlt" });
             }
+
             const callbackName = "gas_callback_" + Math.random().toString(36).substring(2, 15);
             
             window[callbackName] = function(data) 
@@ -66,7 +69,9 @@ app.logic =
             };
 
             const dataPayload = JSON.stringify({ action: action, ...payload });
-            const finalUrl = `${API_URL}?callback=${callbackName}&data=${encodeURIComponent(dataPayload)}`;
+            
+            // Korrektur: Hier CONFIG.API_URL verwenden!
+            const finalUrl = `${CONFIG.API_URL}?callback=${callbackName}&data=${encodeURIComponent(dataPayload)}`;
 
             const script = document.createElement("script");
             script.src = finalUrl;
