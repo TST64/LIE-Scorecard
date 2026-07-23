@@ -47,8 +47,8 @@ app.logic =
     // Die neue API-Schnittstelle über JSONP (HTTP GET)
     apiRequest: function(action, payload = {})
     {
-        //const API_URL = "https://script.google.com/macros/s/AKfycbwBQMtEpIpYAhmcNP6nLvSeNZAyTzW_IVuuaZha9yuf3PAa0v1OjUokySCLSYaWR0YhTA/exec";
-        const API_URL = "https://script.google.com/macros/s/AKfycbzdMHzJ_Sl4lkgZgMo7q2k4j0iAzoGLE2AutrlctXFU/dev";
+        const API_URL = "https://script.google.com/macros/s/AKfycbyekHOsFd_g0VlShuzfH1ObfbJzYGY7DaBnBvs80deWwGKQrq_uOarL43KvmkAzcxEEcQ/exec";
+        //const API_URL = "https://script.google.com/macros/s/AKfycbzdMHzJ_Sl4lkgZgMo7q2k4j0iAzoGLE2AutrlctXFU/dev";
         console.log(`[API Request] Action: ${action}`);
 
         return new Promise((resolve, reject) => 
