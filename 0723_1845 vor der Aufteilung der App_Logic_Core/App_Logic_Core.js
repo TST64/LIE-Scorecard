@@ -1,6 +1,6 @@
 // =========================================================================
 // BMAssistent / LIE Scorecard - Anwendungslogik
-// App_Logic_Core.html
+// App_Logic_Core.js
 // BSD (Allman) Style
 // =========================================================================
 
@@ -30,7 +30,7 @@ window.google.script = {
     }
 };
 
-// Proxy für google.script.run, um dynamische Funktionsaufrufe zu erlauben
+// Proxy für google.script.run
 google.script.run = new Proxy(google.script.run, {
     get: function(target, prop) {
         if (prop === 'withSuccessHandler' || prop === 'withFailureHandler' || prop === 'successCb' || prop === 'failureCb') return target[prop];
@@ -44,14 +44,13 @@ google.script.run = new Proxy(google.script.run, {
 // =========================================================================
 app.logic = 
 {
-    // Die neue API-Schnittstelle über JSONP (HTTP GET)
+    // API Interface via JSONP
     apiRequest: function(action, payload = {})
     {
         console.log(`[API Request] Action: ${action}`);
 
         return new Promise((resolve, reject) => 
         {
-            // Sichere Prüfung: Abbrechen, falls CONFIG fehlt
             if (typeof CONFIG === "undefined" || !CONFIG.API_URL) 
             {
                 console.error("[API Error] CONFIG oder CONFIG.API_URL ist nicht definiert!");
@@ -69,8 +68,6 @@ app.logic =
             };
 
             const dataPayload = JSON.stringify({ action: action, ...payload });
-            
-            // Korrektur: Hier CONFIG.API_URL verwenden!
             const finalUrl = `${CONFIG.API_URL}?callback=${callbackName}&data=${encodeURIComponent(dataPayload)}`;
 
             const script = document.createElement("script");
@@ -88,7 +85,7 @@ app.logic =
         });
     },
 
-    // Globaler Daten-Refresh im Hintergrund über die neue JSONP-API
+    // Globaler Daten-Refresh
     refreshGlobalAppData: async function()
     {
         const icon = document.getElementById('global-refresh-icon');
@@ -150,10 +147,9 @@ app.logic =
         }
     },
 
-    // Ermittelt die anteilige Spielvorgabe pro Loch basierend auf dem Stammblatt
     calculateHoleVorgabe: function(spieler, kursId, holeSi)
     {
-        const hcp = parseFloat(spieler.hcpLIE) || 54.0;
+        const hcp = parseFloat(spieler ? spieler.hcpLIE : 54.0) || 54.0;
         const hcpsForKurs = app.state.handicaps.filter(function(h) { return String(h.kursId).trim() === String(kursId).trim(); });
         
         let vorgabeMatch = hcpsForKurs.find(function(h) { return parseFloat(h.vorgabe) === hcp; });
@@ -170,7 +166,6 @@ app.logic =
         return holeVorgabe;
     },
 
-    // Stableford-Netto-Punkteergebnis berechnen
     calculateNettoStableford: function(strokes, par, holeVorgabe)
     {
         if (!strokes || strokes <= 0) 
@@ -185,7 +180,6 @@ app.logic =
         return punkte < 0 ? 0 : punkte;
     },
 
-    // Lokales Anpassen der Schläge im Zwischenspeicher
     adjustScore: function(spieltagId, spielerId, holeNr, delta, par, spielvorgabe)
     {
         const key = `${spieltagId}_${spielerId}_${holeNr}`;
@@ -233,7 +227,6 @@ app.logic =
         }
     },
 
-    // Erhöht oder verringert numerische Zusatzwerte (z.B. Putts) im Live-State
     adjustLiveValue: function(spieltagId, spielerId, holeNr, field, delta)
     {
         const key = `${spieltagId}_${spielerId}_${holeNr}_${field}`;
@@ -259,7 +252,6 @@ app.logic =
         }
     },
 
-    // Schaltet Boolean-Flags (z.B. Lady) im Live-State um
     toggleLiveBoolean: function(spieltagId, spielerId, holeNr, field)
     {
         const key = `${spieltagId}_${spielerId}_${holeNr}_${field}`;
@@ -293,7 +285,6 @@ app.logic =
         }
     },
 
-    // Schaltet den MaxScore ("Strich") um und setzt bei Aktivierung das persönliche Maximum
     toggleMaxScore: function(spieltagId, spielerId, holeNr, maxScoreValue, par, spielvorgabe)
     {
         const maxScoreKey = `${spieltagId}_${spielerId}_${holeNr}_maxscore`;
@@ -355,13 +346,14 @@ app.logic =
         }
     },
 
-    // Schiebt alle ungesicherten lokalen Scores hoch in das Sheet app_ScoreCards
+    // Schiebt alle ungesicherten lokalen Scores in die Cloud und aktualisiert den State
     syncScoresWithServer: function(spieltagId, flightSeq)
     {
         const keysToSync = Object.keys(app.state.liveScores).filter(function(k) { return k.startsWith(spieltagId + "_"); });
         
         if (keysToSync.length === 0)
         {
+            app.logic.showToast("Keine ausstehenden Änderungen.", "info");
             return;
         }
 
@@ -395,12 +387,12 @@ app.logic =
             let strokes = app.state.liveScores[scoreKey];
             if (strokes === undefined || strokes === null || strokes <= 0) return;
 
-            const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === spielerId; });
+            const spieler = app.state.spieler.find(function(s) { return String(s.id).trim() === String(spielerId).trim(); });
             const spieltag = app.state.spieltage.find(function(st) { return String(st.id).trim() === String(spieltagId).trim(); });
-            const kursBahnen = app.state.bahnen.filter(function(b) { return String(b.kursId) === String(spieltag.kursId); });
+            const kursBahnen = app.state.bahnen.filter(function(b) { return String(b.kursId) === String(spieltag ? spieltag.kursId : ""); });
             const bahn = kursBahnen.find(function(b) { return parseInt(b.nr) === holeNr; }) || { si: 10 };
 
-            let strokesGiven = app.logic.calculateHoleVorgabe(spieler, spieltag.kursId, bahn.si);
+            let strokesGiven = app.logic.calculateHoleVorgabe(spieler, spieltag ? spieltag.kursId : "", bahn.si);
 
             scoresPayload.push({
                 id: `SC-${spieltagId}-${spielerId}-${holeNr}`,
@@ -423,7 +415,7 @@ app.logic =
             return;
         }
 
-        app.logic.apiRequest('saveLiveScores', scoresPayload)
+        app.logic.apiRequest('saveLiveScores', { payload: scoresPayload })
             .then(function(response)
             {
                 if (response && response.success)
@@ -435,7 +427,7 @@ app.logic =
 
                     scoresPayload.forEach(function(item)
                     {
-                        const idx = app.state.scoreCards.findIndex(function(sc) { return sc.id === item.id; });
+                        const idx = app.state.scoreCards.findIndex(function(sc) { return String(sc.id).trim() === String(item.id).trim(); });
                         if (idx !== -1) 
                         {
                             app.state.scoreCards[idx] = item;
@@ -445,11 +437,12 @@ app.logic =
                             app.state.scoreCards.push(item);
                         }
                     });
-                    console.log("[Sync Guard] Daten erfolgreich in Cloud verbucht.");
+
+                    app.logic.showToast("Scores erfolgreich gesichert!", "success");
                 }
                 else
                 {
-                    app.logic.showToast("Sync-Fehler: " + response.error, "error");
+                    app.logic.showToast("Sync-Fehler: " + (response ? response.error : "Unbekannt"), "error");
                 }
 
                 if (syncBtn)
@@ -462,12 +455,12 @@ app.logic =
             .catch(function(err)
             {
                 console.error("Netzwerkfehler beim Sichern:", err);
+                app.logic.showToast("Fehler beim Sichern der Daten", "error");
                 if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = `<i class="fas fa-cloud-upload-alt mr-1"></i> Sichern`; }
                 app.logic.startLivePolling(spieltagId, null, flightSeq);
             });
     },
 
-    // Loggt den aktuellen Spieler aus und leitet zurück zur Login-Ansicht
     logout: function()
     {
         app.logic.showConfirm(
@@ -485,7 +478,6 @@ app.logic =
         );
     },
 
-    // Aktualisiert das Rollen-Symbol im globalen Header
     updateHeaderRoleIcon: function()
     {
         const badgeContainer = document.getElementById('header-role-badge');
@@ -524,7 +516,6 @@ app.logic =
         badgeContainer.innerHTML = iconHtml;
     },
 
-    // Wechselt die Formular-Anzeige bei Rundenplanung (Zufall vs Manuell)
     toggleFlightMode: function()
     {
         const manualRadio = document.querySelector('input[name="flight-mode"]:checked');
@@ -553,7 +544,6 @@ app.logic =
         }
     },
 
-    // Generiert das Klick-Interface für manuellen Flightbau
     buildManualFlightsBuilder: function()
     {
         if (!app.state.tempManualFlights || Object.keys(app.state.tempManualFlights).length === 0)
@@ -640,7 +630,7 @@ app.logic =
         const gewaehlteIds = Array.from(checkedBoxes).map(function(cb) { return cb.value; });
 
         let bereitsInFlight = [];
-        Object.keys(app.state.tempManualFlights).forEach(function(fKey)
+        Object.keys(app.state.tempManualFlights || {}).forEach(function(fKey)
         {
             bereitsInFlight = bereitsInFlight.concat(app.state.tempManualFlights[fKey]);
         });
@@ -704,6 +694,7 @@ app.logic =
 
         if (!kursSelect || !dateInput || gewaehlteIds.length === 0) 
         {
+            app.logic.showToast("Bitte fülle alle Felder aus!", "info");
             return;
         }
 
@@ -768,7 +759,6 @@ app.logic =
             });
     },
 
-    // Zufälliges Zusammenlosen der Flights (Unterstützt 2er, 3er und 4er Flights)
     previewFlights: function()
     {
         const checkedBoxes = document.querySelectorAll('input[name="teilnehmer"]:checked');
@@ -782,8 +772,79 @@ app.logic =
             return;
         }
 
-        const flightGroesse = parseInt(sizeRadio.value);
-        
+        const totalPlayers = gewaehlteIds.length;
+        const selectedOption = sizeRadio.value;
+
+        // Regel-Mapping nach Wunschschema (1-20 Spieler)
+        const standardRules = {
+            1: [1],
+            2: [2],
+            3: [3],
+            4: [4],
+            5: [2, 3],
+            6: [3, 3],
+            7: [3, 4],
+            8: [4, 4],
+            9: [3, 3, 3],
+            10: [3, 3, 4],
+            11: [3, 4, 4],
+            12: [4, 4, 4],
+            13: [3, 3, 3, 4],
+            14: [3, 3, 4, 4],
+            15: [3, 4, 4, 4],
+            16: [4, 4, 4, 4],
+            17: [3, 3, 3, 4, 4],
+            18: [3, 3, 4, 4, 4],
+            19: [3, 4, 4, 4, 4],
+            20: [4, 4, 4, 4, 4]
+        };
+
+        let flightSizesPattern = [];
+
+        if (selectedOption === 'standard')
+        {
+            if (standardRules[totalPlayers])
+            {
+                flightSizesPattern = standardRules[totalPlayers];
+            }
+            else
+            {
+                // Fallback für > 20 Spieler (Bevorzugt 4er, füllt mit 3ern auf)
+                let remaining = totalPlayers;
+                while (remaining > 0)
+                {
+                    if (remaining % 4 === 0 || remaining >= 8)
+                    {
+                        flightSizesPattern.push(4);
+                        remaining -= 4;
+                    }
+                    else if (remaining % 3 === 0)
+                    {
+                        flightSizesPattern.push(3);
+                        remaining -= 3;
+                    }
+                    else
+                    {
+                        flightSizesPattern.push(4);
+                        remaining -= 4;
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Fest vorgegebene Flight-Größen (2er, 3er oder 4er)
+            const targetSize = parseInt(selectedOption);
+            let remaining = totalPlayers;
+            while (remaining > 0)
+            {
+                const currentSize = Math.min(remaining, targetSize);
+                flightSizesPattern.push(currentSize);
+                remaining -= currentSize;
+            }
+        }
+
+        // Spielerliste zufällig durchmischen (Fisher-Yates-Shuffle)
         const gemischteIds = [...gewaehlteIds];
         for (let i = gemischteIds.length - 1; i > 0; i--)
         {
@@ -791,21 +852,17 @@ app.logic =
             [gemischteIds[i], gemischteIds[j]] = [gemischteIds[j], gemischteIds[i]];
         }
 
+        // Flights basierend auf dem ermittelten Größen-Pattern befüllen
         const generierteFlights = [];
-        while (gemischteIds.length > 0)
+        flightSizesPattern.forEach(function(size)
         {
-            generierteFlights.push(gemischteIds.splice(0, flightGroesse));
-        }
-
-        if (generierteFlights.length > 1 && generierteFlights[generierteFlights.length - 1].length === 1)
-        {
-            const einsamerSpieler = generierteFlights.pop()[0];
-            generierteFlights[generierteFlights.length - 1].push(einsamerSpieler);
-        }
+            generierteFlights.push(gemischteIds.splice(0, size));
+        });
 
         app.state.tempZufallsFlights = generierteFlights;
 
-        let previewHtml = `<h4 class="text-xs font-bold text-stone-500 uppercase tracking-wider mt-2"><i class="fas fa-eye"></i> Auslosungs-Vorschau</h4>`;
+        // Vorschau-Rendering
+        let previewHtml = `<h4 class="text-xs font-bold text-stone-500 uppercase tracking-wider mt-2"><i class="fas fa-eye"></i> Auslosungs-Vorschau (${totalPlayers} Spieler)</h4>`;
         generierteFlights.forEach(function(flightIds, index)
         {
             const namenList = flightIds.map(function(id)
@@ -815,8 +872,9 @@ app.logic =
             }).join(', ');
 
             previewHtml += `
-                <div class="p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-800 font-semibold">
-                    <span class="text-emerald-700 font-bold">Flight ${index + 1}:</span> ${namenList}
+                <div class="p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-800 font-semibold flex justify-between items-center">
+                    <div><span class="text-emerald-700 font-bold">Flight ${index + 1}:</span> ${namenList}</div>
+                    <span class="text-[10px] bg-stone-200 text-stone-600 px-2 py-0.5 rounded-md font-bold">${flightIds.length}er</span>
                 </div>
             `;
         });
@@ -881,7 +939,6 @@ app.logic =
             });
     },
 
-    // Spielleiter-Funktion: Bricht einen Spieltag offiziell ab (Status "Abgebrochen")
     cancelActiveSpieltag: function(spieltagId)
     {
         app.logic.showConfirm(
@@ -934,7 +991,6 @@ app.logic =
         );
     },
 
-    // Spielleiter-Funktion: Beendet den Spieltag, berechnet HCP-Updates und friert Sieger ein
     closeActiveSpieltag: function(spieltagId, bruttoSieger, nettoSieger)
     {
         const spieltag = app.state.spieltage.find(function(st) { return String(st.id).trim() === String(spieltagId).trim(); });
@@ -963,8 +1019,6 @@ app.logic =
         }
 
         const stablefordSoll = (maxBahnen <= 9) ? 18 : 36;
-
-        console.log(`[HCP-DASH] Runden-Analyse gestartet: Kurs-ID=${spieltag.kursId}, Erkannte Bahnenanzahl=${maxBahnen}, Erwartetes Stableford-Soll=${stablefordSoll}`);
 
         const handicapUpdates = [];
         let infoText = "";
@@ -1015,8 +1069,6 @@ app.logic =
             {
                 const altesHcp = parseInt(spieler.hcpLIE) || 54;
                 let neuesHcp = altesHcp;
-
-                console.log(`[HCP-DASH] Berechne für ${spieler.nickname}: altes HCP=${altesHcp}, erzielte Netto-Punkte=${totalNettoStableford}, Soll=${stablefordSoll}`);
 
                 if (totalNettoStableford > stablefordSoll)
                 {
@@ -1096,7 +1148,6 @@ app.logic =
         );
     },
 
-    // Login-Prozess: Prüft die PIN-Eingabe gegen die verschlüsselten Server-Salts
     submitPin: function(event) 
     {
         if (event) 
@@ -1108,7 +1159,6 @@ app.logic =
         const btn = document.getElementById('loginSubmitBtn') || (event && event.target);
         if (btn && btn.disabled) 
         {
-            console.log("[PIN Guard] Klick blockiert: Anfrage läuft bereits...");
             return false;
         }
     
@@ -1131,15 +1181,11 @@ app.logic =
             btn.innerText = "Prüfe...";
         }
     
-        console.log("[BRIDGE] Weiterleitung an API: verifyPlayerPin für ID:", spielerId);
-    
         app.logic.apiRequest('verifyPlayerPin', { spielerId: spielerId, pin: pin.trim() })
         .then(function(response) 
         {
             if (response && response.success) 
             {
-                console.log("[PIN Success] Login erfolgreich. mustChange:", response.mustChange);
-                
                 app.state = app.state || {};
                 app.state.currentUser = app.state.spieler.find(function(s) {
                     return String(s.id) === String(spielerId);
@@ -1170,7 +1216,6 @@ app.logic =
         })
         .catch(function(err) 
         {
-            console.error("[BRIDGE Error] verifyPlayerPin fehlgeschlagen:", err);
             if (typeof app.logic.showToast === 'function') 
             {
                 app.logic.showToast("Fehler bei der PIN-Verifizierung: " + err.message, "error");
@@ -1183,7 +1228,6 @@ app.logic =
         return false;
     },
 
-    // Ändert die Initial-PIN (4722) ab in eine persönliche Zahlenkombination
     changePin: function()
     {
         const p1 = document.getElementById('pin-new-1');
@@ -1243,7 +1287,6 @@ app.logic =
             });
     },
 
-    // Admin-Funktion: Speichern eines Spielerprofils
     savePlayer: function(isNew)
     {
         const idInput = document.getElementById('edit-sp-id');
@@ -1332,7 +1375,6 @@ app.logic =
             });
     },
 
-    // Admin-Funktion: Entfernt einen Spieler physisch vom Server
     deletePlayer: function(spielerId)
     {
         app.logic.showConfirm(
@@ -1359,7 +1401,6 @@ app.logic =
         );
     },
 
-    // Admin-Funktion: Setzt eine PIN zurück auf den Standardwert 4722
     resetPlayerPin: function(spielerId)
     {
         app.logic.showConfirm(
@@ -1384,7 +1425,6 @@ app.logic =
         );
     },
 
-    // Admin-Funktion: Führt einen kompletten Reset aller Testdaten aus
     triggerMasterReset: function()
     {
         app.logic.showConfirm(
@@ -1450,7 +1490,6 @@ app.logic =
                     {
                         if (response && response.success)
                         {
-                            // Lokalen State direkt aktualisieren
                             const st = app.state.spieltage.find(function(s) { return String(s.id).trim() === String(spieltagId).trim(); });
                             if (st)
                             {
@@ -1469,19 +1508,10 @@ app.logic =
         );
     },
 
-    // =========================================================================
-    // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
-    // =========================================================================
-
-    // =========================================================================
-    // MODERNE UI-MESSAGES (TOASTS & CUSTOM CONFIRM)
-    // =========================================================================
-
     showToast: function(text, type)
     {
         let container = document.getElementById('global-toast-container');
         
-        // Auto-Recovery: Falls der Container im HTML fehlt, erstelle ihn dynamisch im Body!
         if (!container)
         {
             container = document.createElement('div');
@@ -1578,10 +1608,6 @@ app.logic =
         };
     },
 
-    // =========================================================================
-    // BACKGROUND LIVE POLLING CONTROLLER
-    // =========================================================================
-
     startLivePolling: function(spieltagId, holeNr, flightSeq)
     {
         app.logic.stopLivePolling();
@@ -1659,7 +1685,6 @@ app.logic =
         {
             clearInterval(app.state.pollingIntervalId);
             app.state.pollingIntervalId = null;
-            console.log("Polling-Intervall erfolgreich gelöscht.");
         }
     }
 };
