@@ -1,4 +1,3 @@
-
 // =========================================================================
 // BMAssistent / LIE Scorecard - Startup Bootstrapper
 // App_Start.html
@@ -89,6 +88,19 @@ app.initStart = function()
         splashImg.classList.remove('hidden'); 
     }
 
+    // Visueller Hinweis, falls Google Apps Script einen Kaltstart (Cold Start) hat
+    setTimeout(function() {
+        const splashElement = document.getElementById('app-loading');
+        if (splashElement && (!app.state || !app.state.spieler)) {
+            console.warn("[START] GAS-Antwort lässt auf sich warten (Kaltstart)...");
+            const label = splashElement.querySelector('p');
+            if (label) {
+                label.textContent = "Verbindung zum Server dauert etwas... (Kaltstart)";
+            }
+        }
+    }, 4000);
+
+    // 1. Wenn direkt in der GAS-Umgebung gehostet (HTML Service)
     if (typeof google !== 'undefined' && google.script && google.script.run)
     {
         google.script.run
@@ -99,17 +111,26 @@ app.initStart = function()
             })
             .getInitialAppData();
     }
+    // 2. Wenn über Web / GitHub Pages (über App_Logic_Bridge.js und config.js)
+    else if (typeof app.logic !== 'undefined' && typeof app.logic.fetchFromGAS === 'function')
+    {
+        console.log("[START] Lade initiale App-Daten über Bridge...");
+        app.logic.fetchFromGAS('getInitialAppData', {})
+            .then(function(response) {
+                console.log("[START] Daten erfolgreich von GAS empfangen:", response);
+                app.onDataLoaded(response);
+            })
+            .catch(function(err) {
+                console.error("[START] Fehler beim Laden der Init-Daten:", err);
+                app.onDataLoaded({ 
+                    success: false, 
+                    error: "Fehler bei der Verbindung zu Google Apps Script:\n" + (err.message || err) 
+                });
+            });
+    }
     else
     {
-        // Falls im Web/Github-Pages (über API_URL aus config.js):
-        if (typeof app.logic !== 'undefined' && typeof app.logic.refreshGlobalAppData === 'function')
-        {
-            app.logic.refreshGlobalAppData();
-        }
-        else
-        {
-            app.onDataLoaded({ success: false, error: "Keine Google Apps Script Umgebung erkannt (Lokal-Modus)." });
-        }
+        app.onDataLoaded({ success: false, error: "Keine gültige API-Schnittstelle gefunden." });
     }
 };
 
