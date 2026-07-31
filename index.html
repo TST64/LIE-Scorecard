@@ -101,30 +101,46 @@
     </div>
 
     <!-- 1. Zuerst die Konfiguration laden -->
-    <script src="config.js?v=8.0"></script>
-    
-    <!-- Einbinden aller JS-Module -->
-    <script src="App_Core.js"></script>
-    <script src="App_View_Help.js"></script>
-    <script src="App_Router.js"></script>
+    <script src="config.js"></script>
 
-    <!-- NEU: Die 5 strukturierten Logik-Module (ersetzen App_Logic_Core.js) -->
-    <script src="App_Logic_Bridge.js?v=9"></script>
-    <script src="App_Logic_Scores.js?v=9"></script>
-    <script src="App_Logic_Spieltage.js?v=9"></script>
-    <script src="App_Logic_Spieler.js?v=9"></script>
-    <script src="App_Logic_UI.js?v=9"></script>
+    <!-- 2. Dynamisches Laden aller JS-Module mit automatischer Versionierung -->
+    <script>
+    (function() {
+        // Exakt deine bisherige Ladereihenfolge
+        const scripts = [
+        "App_Core.js",
+        "App_View_Help.js",
+        "App_Router.js",
+        "App_Logic_Bridge.js",
+        "App_Logic_Scores.js",
+        "App_Logic_Spieltage.js",
+        "App_Logic_Spieler.js",
+        "App_Logic_UI.js",
+        "App_Start.js",
+        "Bridge_Fix.js",
+        "Views_Login.js",
+        "Views_Dashboard.js",
+        "Views_Spieltage.js",
+        "Views_SpieltagNeu.js",
+        "Views_ScoreEingabe.js",
+        "Views_Leaderboard.js",
+        "Views_AdminGruppe.js",
+        "Views_SpielerEdit.js"
+        ];
 
-    <script src="App_Start.js"></script>
-    <script src="Bridge_Fix.js"></script>
-    <script src="Views_Login.js"></script>
-    <script src="Views_Dashboard.js"></script>
-    <script src="Views_Spieltage.js"></script>
-    <script src="Views_SpieltagNeu.js"></script>
-    <script src="Views_ScoreEingabe.js"></script>
-    <script src="Views_Leaderboard.js"></script>
-    <script src="Views_AdminGruppe.js"></script>
-    <script src="Views_SpielerEdit.js"></script>
+        // Liest appVersion aus config.js aus (mit Fallback, falls nicht vorhanden)
+        const version = (typeof CONFIG !== 'undefined' && CONFIG.appVersion) ? CONFIG.appVersion : Date.now();
+
+        // Fügt jedes Skript geordnet in den Head ein
+        scripts.forEach(function(src) {
+        const script = document.createElement('script');
+        script.src = src + '?v=' + encodeURIComponent(version);
+        // async = false garantiert die strikte Einhaltung der Reihenfolge bei der Ausführung
+        script.async = false; 
+        document.head.appendChild(script);
+        });
+    })();
+    </script>
 
 </body>
 </html>
