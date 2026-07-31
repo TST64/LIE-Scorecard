@@ -57,7 +57,7 @@
         </header>
 
         <!-- Main Content Area -->
-        <main id="app-container" class="flex-1 p-4">
+        <main id="app-container" class="flex-1 p-4 pb-24">
             <!-- Splash Screen -->
             <div id="app-loading" class="flex flex-col items-center justify-center pt-12 space-y-6">
                 <div class="w-48 h-48 bg-stone-50 border border-stone-200 rounded-3xl p-2 shadow-md flex items-center justify-center overflow-hidden">
@@ -159,10 +159,8 @@
                         loadedCount++;
                         // Wenn ALLE Skripte im Browser sind: App manuell starten!
                         if (loadedCount === scripts.length) {
-                            if (window.app && typeof window.app.init === 'function') {
-                                window.app.init();
-                            } else if (typeof initApp === 'function') {
-                                initApp();
+                            if (window.app && typeof window.app.initStart === 'function') {
+                                window.app.initStart();
                             }
                         }
                     };

@@ -8,27 +8,24 @@ function doGet(e)
 {
     try 
     {
-        // Check if query parameters exist
         if (!e || !e.parameter || !e.parameter.data)
         {
             return ContentService.createTextOutput("Backend aktiv. API bereit.")
                 .setMimeType(ContentService.MimeType.TEXT);
         }
 
-        // 1. Parse JSON payload from GET parameter "data"
         const body = JSON.parse(e.parameter.data);
         const action = body.action;
         const callback = e.parameter.callback;
         
         let result;
 
-        // 2. Routing: Execute corresponding action function
         switch (action) 
         {
             case 'getInitialAppData':
                 result = getInitialAppData();
                 break;
-                
+
             case 'saveLiveScores':
                 result = saveLiveScores(body.payload || body);
                 break;
@@ -87,7 +84,6 @@ function doGet(e)
 
         const jsonResponse = JSON.stringify({ success: true, ...result });
 
-        // Respond with JSONP format if callback is provided
         if (callback)
         {
             return ContentService.createTextOutput(callback + "(" + jsonResponse + ")")
@@ -114,7 +110,6 @@ function doGet(e)
 
 function doPost(e) 
 {
-    // Forward POST requests directly to doGet
     return doGet(e);
 }
 
@@ -124,9 +119,6 @@ function doOptions(e)
         .setMimeType(ContentService.MimeType.TEXT);
 }
 
-/**
- * Converts a sheet into JSON with optional column/value filtering.
- */
 function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
 {
     if (!sheet) return [];
@@ -144,13 +136,11 @@ function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
         {
             let val = row[index];
             
-            // Format dates properly
             if (val instanceof Date) 
             {
                 val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd");
             }
             
-            // CSV fallback logic for IDs
             if ((header === "teilnehmerCsv" || header === "spielerIdsCsv") && val) 
             {
                 let cleanStr = String(val).trim();
@@ -168,16 +158,18 @@ function getSheetDataAsJson(sheet, filterCol = null, filterVal = null)
         return obj;
     }).filter(function(item) 
     {
+        const hasValidId = item.id !== undefined && item.id !== null && String(item.id).trim() !== "";
+        if (!hasValidId)
+        {
+            return false;
+        }
+
         return filterCol === null || String(item[filterCol]).trim() === String(filterVal).trim();
     });
 }
 
-/**
- * Clears all data rows from app_Spieltage, app_Flights, and app_ScoreCards.
- */
 function clearTestDataBase()
 {
-    Logger.log("=== START: DATENBANK-RESET FOR TESTING (CLEAR CONTENT MODE) ===");
     try
     {
         const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
@@ -188,7 +180,6 @@ function clearTestDataBase()
             const sheet = ssApp.getSheetByName(sheetName);
             if (!sheet)
             {
-                Logger.log(`Hinweis: Blatt '${sheetName}' wurde nicht gefunden.`);
                 return;
             }
             
@@ -199,28 +190,17 @@ function clearTestDataBase()
             {
                 const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
                 dataRange.clearContent();
-                Logger.log(`Tabelle '${sheetName}': Daten erfolgreich geleert.`);
-            }
-            else
-            {
-                Logger.log(`Tabelle '${sheetName}': War bereits leer.`);
             }
         });
         
         SpreadsheetApp.flush();
-        Logger.log("=== ERFOLG: Datenbank komplett geleert! ===");
         return { success: true };
     }
     catch (err)
     {
-        Logger.log("FEHLER beim Zurücksetzen der Datenbank: " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
-
-// ==========================================
-// CORE API FUNCTIONS
-// ==========================================
 
 function getInitialAppData()
 {
@@ -232,39 +212,30 @@ function getInitialAppData()
         const ssRef = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssRef"));
         const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
 
-        debugLog.push("Suche Tabellenblatt 'adm_Spieler'...");
         const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
         if (!tSpieler) return { success: false, error: "Tabelle 'adm_Spieler' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'ref_Golfplätze'...");
         const tPlaetze = ssRef.getSheetByName("ref_Golfplätze");
         if (!tPlaetze) return { success: false, error: "Tabelle 'ref_Golfplätze' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'ref_GolfplatzKurse'...");
         const tKurse = ssRef.getSheetByName("ref_GolfplatzKurse");
         if (!tKurse) return { success: false, error: "Tabelle 'ref_GolfplatzKurse' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'ref_KursBahnen'...");
         const tBahnen = ssRef.getSheetByName("ref_KursBahnen");
         if (!tBahnen) return { success: false, error: "Tabelle 'ref_KursBahnen' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'ref_KursHandicap'...");
         const tHandicaps = ssRef.getSheetByName("ref_KursHandicap");
         if (!tHandicaps) return { success: false, error: "Tabelle 'ref_KursHandicap' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'app_Spieltage'...");
         const tSpieltage = ssApp.getSheetByName("app_Spieltage");
         if (!tSpieltage) return { success: false, error: "Tabelle 'app_Spieltage' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'app_ScoreCards'...");
         const tScoreCards = ssApp.getSheetByName("app_ScoreCards");
         if (!tScoreCards) return { success: false, error: "Tabelle 'app_ScoreCards' nicht gefunden!" };
 
-        debugLog.push("Suche Tabellenblatt 'app_Flights'...");
         const tFlights = ssApp.getSheetByName("app_Flights");
         if (!tFlights) return { success: false, error: "Tabelle 'app_Flights' nicht gefunden!" };
 
-        debugLog.push("Konvertiere Tabellendaten...");
         return {
             success: true,
             spieler: getSheetDataAsJson(tSpieler),
@@ -286,11 +257,16 @@ function getInitialAppData()
     }
 }
 
+
+/**
+ * Speichert Live-Scores mit strikter Upsert-Logik (Update or Insert).
+ * Verhindert Duplikate in app_ScoreCards vollständig.
+ */
 function saveLiveScores(scoresArray)
 {
     try
     {
-        if (!scoresArray || scoresArray.length === 0)
+        if (!scoresArray || !Array.isArray(scoresArray) || scoresArray.length === 0)
         {
             return { success: true };
         }
@@ -303,11 +279,37 @@ function saveLiveScores(scoresArray)
             return { success: false, error: "Tabelle 'app_ScoreCards' wurde nicht gefunden." };
         }
 
-        // Map 10 columns including lady, puts, and maxscore
-        const rowsToAppend = scoresArray.map(function(item)
+        // 1. Header sicherstellen, falls das Blatt völlig leer ist
+        let lastRow = tScores.getLastRow();
+        if (lastRow === 0)
         {
-            return [
-                String(item.id).trim(),
+            tScores.appendRow(["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts", "maxscore"]);
+            lastRow = 1;
+        }
+
+        // 2. Bestehende Daten einlesen, um Zeilen-Indizes anhand der 'id' (Spalte 1) zu mappen
+        const existingData = tScores.getDataRange().getValues();
+        const idToRowMap = {}; // Key: ScoreCard-ID -> Value: Zeilennummer im Sheet (1-basiert)
+
+        for (let i = 1; i < existingData.length; i++)
+        {
+            const existingId = String(existingData[i][0]).trim();
+            if (existingId !== "")
+            {
+                idToRowMap[existingId] = i + 1; // i=1 ist Zeile 2 im Google Sheet
+            }
+        }
+
+        const rowsToAppend = [];
+
+        // 3. Durch alle eingehenden Scores iterieren
+        scoresArray.forEach(function(item)
+        {
+            const cleanId = String(item.id).trim();
+            
+            // 10 Spalten konform zur Tabellenstruktur
+            const rowData = [
+                cleanId,
                 String(item.spieltagId).trim(),
                 parseInt(item.flightSeq) || 1,
                 String(item.spielerId).trim(),
@@ -318,23 +320,35 @@ function saveLiveScores(scoresArray)
                 parseInt(item.puts) !== undefined ? parseInt(item.puts) : 2,
                 item.maxscore ? "TRUE" : "FALSE"
             ];
+
+            if (idToRowMap[cleanId])
+            {
+                // A) UPDATE: ID existiert bereits -> Bestehende Zeile direkt im Sheet überschreiben
+                const existingRowIndex = idToRowMap[cleanId];
+                tScores.getRange(existingRowIndex, 1, 1, 10).setValues([rowData]);
+            }
+            else
+            {
+                // B) INSERT: Neue ID -> Für Batch-Append am Ende vormerken
+                rowsToAppend.push(rowData);
+                // ID in Map registrieren, falls im selben Payload Duplikate enthalten sein sollten
+                idToRowMap[cleanId] = lastRow + rowsToAppend.length;
+            }
         });
 
-        let lastRow = tScores.getLastRow();
-        if (lastRow === 0)
+        // 4. Neue Einträge gesammelt unten anfügen
+        if (rowsToAppend.length > 0)
         {
-            tScores.appendRow(["id", "spieltagId", "flightSeq", "spielerId", "hole", "strokes", "strokesGiven", "lady", "puts", "maxscore"]);
-            lastRow = 1;
+            const currentLastRow = tScores.getLastRow();
+            tScores.getRange(currentLastRow + 1, 1, rowsToAppend.length, 10).setValues(rowsToAppend);
         }
-        
-        // Write batch rows expanded to 10 columns
-        tScores.getRange(lastRow + 1, 1, rowsToAppend.length, 10).setValues(rowsToAppend);
-        SpreadsheetApp.flush();
 
+        SpreadsheetApp.flush();
         return { success: true };
     }
     catch (err)
     {
+        Logger.log("[saveLiveScores Error] " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
@@ -353,7 +367,8 @@ function createNewSpieltag(spieltagObj, flightsArray)
             spieltagObj.status,
             "'" + String(spieltagObj.teilnehmerCsv),
             spieltagObj.bruttoSieger || "",
-            spieltagObj.nettoSieger || ""
+            spieltagObj.nettoSieger || "",
+            "FALSE"
         ]);
 
         const tFlights = ssApp.getSheetByName("app_Flights");
@@ -432,7 +447,6 @@ function setPlayerPin(spielerId, newPin, isFirstLogin)
         const timestamp = new Date().toString();
         const flagFirstLogin = isFirstLogin ? true : false;
 
-        // Header: spielerId | pinHash | salt | updatedAt | mustChange | failedAttempts | pendingPinHash | pendingSalt
         for (let i = 1; i < data.length; i++) 
         {
             if (parseInt(data[i][0]) === cleanId) 
@@ -441,22 +455,20 @@ function setPlayerPin(spielerId, newPin, isFirstLogin)
                 tPin.getRange(i + 1, 3).setValue(salt);
                 tPin.getRange(i + 1, 4).setValue(timestamp);
                 tPin.getRange(i + 1, 5).setValue(flagFirstLogin);
-                tPin.getRange(i + 1, 6).setValue(0); // Reset failed attempts
-                tPin.getRange(i + 1, 7).setValue(""); // Clear pending hash
-                tPin.getRange(i + 1, 8).setValue(""); // Clear pending salt
+                tPin.getRange(i + 1, 6).setValue(0);
+                tPin.getRange(i + 1, 7).setValue("");
+                tPin.getRange(i + 1, 8).setValue("");
                 SpreadsheetApp.flush();
                 return { success: true };
             }
         }
 
-        // Append new record for 8 columns
         tPin.appendRow([cleanId, hash, salt, timestamp, flagFirstLogin, 0, "", ""]);
         SpreadsheetApp.flush();
         return { success: true };
     } 
     catch (err) 
     {
-        Logger.log("[setPlayerPin Error] " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
@@ -491,10 +503,8 @@ function verifyPlayerPin(spielerId, enteredPin)
             }
         }
 
-        // Erst-Anmeldung ohne bestehenden Record -> PIN per E-Mail generieren
         if (!dbRecord) 
         {
-            Logger.log(`[PIN Guard] Keine PIN für Spieler ID ${spielerId} vorhanden. Generiere Erst-PIN per Mail...`);
             const mailResult = requestTempPin(spielerId);
             if (mailResult.success)
             {
@@ -508,7 +518,6 @@ function verifyPlayerPin(spielerId, enteredPin)
 
         const cleanEnteredPin = String(enteredPin).trim();
 
-        // 1. ZUERST PRÜFEN: Passt die Eingabe zum ausstehenden E-Mail-Code (Entsperrung/Reset)?
         if (dbRecord.pendingPinHash && dbRecord.pendingSalt)
         {
             const combinedTemp = cleanEnteredPin + dbRecord.pendingSalt;
@@ -517,22 +526,20 @@ function verifyPlayerPin(spielerId, enteredPin)
 
             if (computedTempHash === dbRecord.pendingPinHash)
             {
-                // Temp-PIN stimmt -> Konto entsperren, zur primären PIN befördern & PIN-Änderung erzwingen
                 const timestamp = new Date().toString();
                 tPin.getRange(zeileIndex, 2).setValue(dbRecord.pendingPinHash);
                 tPin.getRange(zeileIndex, 3).setValue(dbRecord.pendingSalt);
                 tPin.getRange(zeileIndex, 4).setValue(timestamp);
-                tPin.getRange(zeileIndex, 5).setValue(true); // mustChange = true
-                tPin.getRange(zeileIndex, 6).setValue(0);    // failedAttempts = 0 (Entsperrt!)
-                tPin.getRange(zeileIndex, 7).setValue("");   // pending clear
-                tPin.getRange(zeileIndex, 8).setValue("");   // pending clear
+                tPin.getRange(zeileIndex, 5).setValue(true);
+                tPin.getRange(zeileIndex, 6).setValue(0);
+                tPin.getRange(zeileIndex, 7).setValue("");
+                tPin.getRange(zeileIndex, 8).setValue("");
                 SpreadsheetApp.flush();
 
                 return { success: true, mustChange: true };
             }
         }
 
-        // 2. ERST DANACH PRÜFEN: Ist das Konto aktuell wegen 3 Fehlversuchen gesperrt?
         if (dbRecord.failedAttempts >= 3)
         {
             return { 
@@ -542,7 +549,6 @@ function verifyPlayerPin(spielerId, enteredPin)
             };
         }
 
-        // 3. PRÜFEN: Passt die Eingabe zur bisherigen Haupt-PIN?
         if (dbRecord.pinHash && dbRecord.salt)
         {
             const combinedInput = cleanEnteredPin + dbRecord.salt;
@@ -551,14 +557,12 @@ function verifyPlayerPin(spielerId, enteredPin)
 
             if (computedHash === dbRecord.pinHash) 
             {
-                // Login erfolgreich -> Fehlversuche zurücksetzen
                 tPin.getRange(zeileIndex, 6).setValue(0);
                 SpreadsheetApp.flush();
                 return { success: true, mustChange: dbRecord.mustChange };
             }
         }
 
-        // PIN war falsch -> failedAttempts um 1 erhöhen
         const newAttempts = dbRecord.failedAttempts + 1;
         tPin.getRange(zeileIndex, 6).setValue(newAttempts);
         SpreadsheetApp.flush();
@@ -583,9 +587,6 @@ function verifyPlayerPin(spielerId, enteredPin)
     }
 }
 
-/**
- * Erstellt eine zufällige 6-stellige Temp-PIN und versendet sie per Mail an den Spieler.
- */
 function requestTempPin(spielerId)
 {
     try
@@ -599,7 +600,6 @@ function requestTempPin(spielerId)
             return { success: false, error: "Tabellen 'adm_Spieler' oder 'adm_Pin' wurden nicht gefunden." };
         }
 
-        // Spieler-E-Mail und Namen ermitteln
         const spielerData = tSpieler.getDataRange().getValues();
         let spielerEmail = "";
         let spielerName = "";
@@ -608,7 +608,7 @@ function requestTempPin(spielerId)
         {
             if (parseInt(spielerData[i][0]) === parseInt(spielerId))
             {
-                spielerName = String(spielerData[i][2] || spielerData[i][1]).trim(); // Nickname oder Name
+                spielerName = String(spielerData[i][2] || spielerData[i][1]).trim();
                 spielerEmail = String(spielerData[i][3]).trim();
                 break;
             }
@@ -619,16 +619,13 @@ function requestTempPin(spielerId)
             return { success: false, error: "Für diesen Spieler ist keine gültige E-Mail-Adresse hinterlegt!" };
         }
 
-        // Zufällige 6-stellige Temp-PIN generieren
         const tempPin = Math.floor(100000 + Math.random() * 900000).toString();
 
-        // Salt & Hash erzeugen
         const salt = Utilities.getUuid();
         const combinedInput = tempPin + salt;
         const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, combinedInput, Utilities.Charset.UTF_8);
         const hash = Utilities.base64Encode(digest);
 
-        // In adm_Pin eintragen (Spalten G & H für pendingPinHash / pendingSalt)
         const pinData = tPin.getDataRange().getValues();
         let zeileIndex = -1;
 
@@ -648,13 +645,11 @@ function requestTempPin(spielerId)
         }
         else
         {
-            // Erst-Eintrag für neuen Spieler
             tPin.appendRow([parseInt(spielerId), "", "", new Date().toString(), true, 0, hash, salt]);
         }
 
         SpreadsheetApp.flush();
 
-        // E-Mail versenden
         const subject = "Dein Einmal-Code für die LIE Scorecard";
         const bodyText = `Hallo ${spielerName},\n\ndein Einmal-Code für die Anforderung einer neuen PIN lautet: ${tempPin}\n\nBitte gib diesen Code in der LIE Scorecard App ein. Deine bisherige PIN bleibt solange gültig, bis du dich mit diesem Code anmeldest.\n\nSportliche Grüße,\nDein LIE Scorecard Team`;
         
@@ -664,7 +659,6 @@ function requestTempPin(spielerId)
     }
     catch (err)
     {
-        Logger.log("[requestTempPin Error] " + err.toString());
         return { success: false, error: err.toString() };
     }
 }
@@ -937,10 +931,6 @@ function getLiveScoreUpdates(spieltagId)
     }
 }
 
-// ==========================================
-// GLOBAL HELPER FUNCTIONS
-// ==========================================
-
 function getSpreadsheetUrl(key)
 {
     const props = PropertiesService.getScriptProperties();
@@ -970,8 +960,6 @@ function getPollingRateProperty()
     return 60; 
 }
 
-
-
 function softDeleteSpieltagServer(spieltagId)
 {
     try
@@ -987,9 +975,9 @@ function softDeleteSpieltagServer(spieltagId)
         const data = tSpieltage.getDataRange().getValues();
         const headers = data[0];
         
-        // Suche die Spalte "istGeloescht" (oder "istGelöscht")
-        let delColIndex = headers.findIndex(function(h) { 
-            return h.trim() === "istGeloescht" || h.trim() === "istGelöscht"; 
+        let delColIndex = headers.findIndex(function(h) 
+        { 
+            return String(h).trim() === "istGeloescht" || String(h).trim() === "istGelöscht"; 
         });
 
         if (delColIndex === -1)
@@ -1012,7 +1000,6 @@ function softDeleteSpieltagServer(spieltagId)
             return { success: false, error: "Spieltag nicht gefunden." };
         }
 
-        // Setze den Wert in der entsprechenden Spalte auf TRUE
         tSpieltage.getRange(zeile, delColIndex + 1).setValue("TRUE");
         SpreadsheetApp.flush();
 
@@ -1022,4 +1009,45 @@ function softDeleteSpieltagServer(spieltagId)
     {
         return { success: false, error: err.toString() };
     }
+}
+
+/**
+ * Einmaliges Bereinigungs-Skript für bestehende Duplikate in app_ScoreCards.
+ * Kann manuell im Apps Script Editor gestartet werden.
+ */
+function cleanupDuplicateScorecards()
+{
+    Logger.log("=== START DUPLIKAT-BEREINIGUNG ===");
+    const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
+    const tScores = ssApp.getSheetByName("app_ScoreCards");
+    if (!tScores) return;
+
+    const data = tScores.getDataRange().getValues();
+    if (data.length <= 1) return;
+
+    const headers = data[0];
+    const uniqueMap = {};
+
+    // Von oben nach unten durchgehen: Spätere Eintragszeilen überschreiben frühere
+    for (let i = 1; i < data.length; i++)
+    {
+        const row = data[i];
+        const scId = String(row[0]).trim();
+        if (scId !== "")
+        {
+            uniqueMap[scId] = row;
+        }
+    }
+
+    const cleanRows = [headers];
+    Object.keys(uniqueMap).forEach(function(key)
+    {
+        cleanRows.push(uniqueMap[key]);
+    });
+
+    // Tabelle leeren und bereinigte Daten schreiben
+    tScores.clearContent();
+    tScores.getRange(1, 1, cleanRows.length, headers.length).setValues(cleanRows);
+    SpreadsheetApp.flush();
+    Logger.log(`=== FERTIG! Tabelle von ${data.length} Zeilen auf ${cleanRows.length} Zeilen bereinigt. ===`);
 }

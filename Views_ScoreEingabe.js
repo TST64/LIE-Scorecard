@@ -304,7 +304,7 @@ app.views.score_eingabe = function(spieltagId, holeNumber, targetFlightSeq)
     };
 
     return `
-        <div class="space-y-4">
+        <div class="space-y-4 pb-28">
             <div class="space-y-1">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-2">
