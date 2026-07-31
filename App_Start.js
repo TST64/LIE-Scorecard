@@ -79,8 +79,8 @@ app.onDataLoaded = function(response)
     }
 };
 
-// Start-Trigger zur Datenakquise
-document.addEventListener("DOMContentLoaded", function()
+// Start-Trigger zur Datenakquise (Sicher für dynamisches Skript-Laden)
+app.initStart = function()
 {
     const splashImg = document.getElementById('splash-logo');
     if (splashImg && app.logoString)
@@ -101,6 +101,24 @@ document.addEventListener("DOMContentLoaded", function()
     }
     else
     {
-        app.onDataLoaded({ success: false, error: "Keine Google Apps Script Umgebung erkannt (Lokal-Modus)." });
+        // Falls im Web/Github-Pages (über API_URL aus config.js):
+        if (typeof app.logic !== 'undefined' && typeof app.logic.refreshGlobalAppData === 'function')
+        {
+            app.logic.refreshGlobalAppData();
+        }
+        else
+        {
+            app.onDataLoaded({ success: false, error: "Keine Google Apps Script Umgebung erkannt (Lokal-Modus)." });
+        }
     }
-});
+};
+
+// Falls DOM bereits geladen ist (bei dynamischen Skripten), sofort ausführen, sonst auf Event warten:
+if (document.readyState === 'complete' || document.readyState === 'interactive')
+{
+    app.initStart();
+}
+else
+{
+    document.addEventListener("DOMContentLoaded", app.initStart);
+}

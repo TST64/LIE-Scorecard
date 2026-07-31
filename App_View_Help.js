@@ -3,6 +3,9 @@
 
 app.views.help = function()
 {
+    // Lese die aktuelle Version aus der config.js aus (mit Fallback, falls config.js noch nicht greifbar ist)
+    const currentVersion = (typeof CONFIG !== 'undefined' && CONFIG.appVersion) ? CONFIG.appVersion : 'Unbekannt';
+
     return `
         <div class="max-w-md mx-auto space-y-6 pb-24">
             
@@ -92,7 +95,7 @@ app.views.help = function()
             </div>
 
             <!-- Footer Note -->
-            <p class="text-center text-stone-400 text-[10px]">BMAssistent v2.1 • Entwickelt für die Golf-Männerrunde</p>
+            <p class="text-center text-stone-400 text-[10px]">BMAssistent v${currentVersion} • Entwickelt für die Golf-Männerrunde</p>
         </div>
     `;
 };

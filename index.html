@@ -100,49 +100,70 @@
         </div>
     </div>
 
-<!-- 1. config.js immmer frisch laden -->
-<script>
-    const cfg = document.createElement('script');
-    cfg.src = 'config.js?t=' + Date.now();
-    cfg.async = false;
-    document.head.appendChild(cfg);
-  </script>
-  
-  <!-- 2. Sobald config geladen ist, alle Module geordnet nachladen -->
-  <script>
-    // Kurze Verzögerung stellen sicher, dass CONFIG im Speicher liegt
-    window.addEventListener('DOMContentLoaded', function() {
-      const scripts = [
-        "App_Core.js",
-        "App_View_Help.js",
-        "App_Router.js",
-        "App_Logic_Bridge.js",
-        "App_Logic_Scores.js",
-        "App_Logic_Spieltage.js",
-        "App_Logic_Spieler.js",
-        "App_Logic_UI.js",
-        "App_Start.js",
-        "Bridge_Fix.js",
-        "Views_Login.js",
-        "Views_Dashboard.js",
-        "Views_Spieltage.js",
-        "Views_SpieltagNeu.js",
-        "Views_ScoreEingabe.js",
-        "Views_Leaderboard.js",
-        "Views_AdminGruppe.js",
-        "Views_SpielerEdit.js"
-      ];
-  
-      const version = (typeof CONFIG !== 'undefined' && CONFIG.appVersion) ? CONFIG.appVersion : Date.now();
-  
-      scripts.forEach(function(src) {
-        const script = document.createElement('script');
-        script.src = src + '?v=' + encodeURIComponent(version);
-        script.async = false;
-        document.head.appendChild(script);
-      });
-    });
-  </script>
-  
+    <!-- Dynamisches Laden der Module mit explizitem Start-Trigger -->
+    <script>
+        (function() {
+            const cfgScript = document.createElement('script');
+            cfgScript.src = 'config.js?t=' + Date.now();
+            cfgScript.async = false;
+
+            cfgScript.onload = function() {
+                const scripts = [
+                    "App_Core.js",
+                    "App_View_Help.js",
+                    "App_Router.js",
+                    "App_Logic_Bridge.js",
+                    "App_Logic_Scores.js",
+                    "App_Logic_Spieltage.js",
+                    "App_Logic_Spieler.js",
+                    "App_Logic_UI.js",
+                    "App_Start.js",
+                    "Bridge_Fix.js",
+                    "Views_Login.js",
+                    "Views_Dashboard.js",
+                    "Views_Spieltage.js",
+                    "Views_SpieltagNeu.js",
+                    "Views_ScoreEingabe.js",
+                    "Views_Leaderboard.js",
+                    "Views_AdminGruppe.js",
+                    "Views_SpielerEdit.js"
+                ];
+
+                const version = (typeof CONFIG !== 'undefined' && CONFIG.appVersion) 
+                    ? CONFIG.appVersion 
+                    : Date.now();
+
+                let loadedCount = 0;
+
+                scripts.forEach(function(src) {
+                    const script = document.createElement('script');
+                    script.src = src + '?v=' + encodeURIComponent(version);
+                    script.async = false;
+                    
+                    // Zählen, wie viele Skripte geladen sind
+                    script.onload = function() {
+                        loadedCount++;
+                        // Wenn ALLE Skripte im Browser sind: App manuell starten!
+                        if (loadedCount === scripts.length) {
+                            if (window.app && typeof window.app.init === 'function') {
+                                window.app.init();
+                            } else if (typeof initApp === 'function') {
+                                initApp();
+                            }
+                        }
+                    };
+
+                    document.head.appendChild(script);
+                });
+            };
+
+            cfgScript.onerror = function() {
+                console.error("Fehler beim Laden der config.js!");
+            };
+
+            document.head.appendChild(cfgScript);
+        })();
+    </script>
+
 </body>
 </html>
