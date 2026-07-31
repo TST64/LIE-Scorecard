@@ -10,6 +10,20 @@
     
     <!-- Deine CSS Datei -->
     <link rel="stylesheet" href="Style.css?v=2">
+
+    <!-- Favicon / App-Icon -->
+    <link rel="icon" type="image/jpeg" href="img/LIE_Logo II.jpeg">
+    <!-- Optional: Für iOS App-Icons beim Speichern auf dem Homescreen -->
+    <link rel="apple-touch-icon" href="img/LIE_Logo II.jpeg">
+
+    <!-- PWA Manifest & Mobile Styling -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#047857">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="LIE Scorecard">
+    <link rel="apple-touch-icon" href="img/LIE_Logo II.jpeg">    
+
 </head>
 <body class="bg-stone-100 text-stone-900 font-sans antialiased">
 
@@ -164,6 +178,18 @@
             document.head.appendChild(cfgScript);
         })();
     </script>
+
+    <!-- Service Worker Registrierung für PWA -->
+    <script>
+        if ('serviceWorker' in navigator) 
+        {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('[PWA] Service Worker erfolgreich registriert:', reg.scope))
+                .catch(err => console.warn('[PWA] Service Worker Fehler:', err));
+            });
+        }
+  </script>
 
 </body>
 </html>
