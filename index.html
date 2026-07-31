@@ -100,14 +100,19 @@
         </div>
     </div>
 
-    <!-- 1. Zuerst die Konfiguration laden -->
-    <script src="config.js"></script>
-
-    <!-- 2. Dynamisches Laden aller JS-Module mit automatischer Versionierung -->
-    <script>
-    (function() {
-        // Exakt deine bisherige Ladereihenfolge
-        const scripts = [
+<!-- 1. config.js immmer frisch laden -->
+<script>
+    const cfg = document.createElement('script');
+    cfg.src = 'config.js?t=' + Date.now();
+    cfg.async = false;
+    document.head.appendChild(cfg);
+  </script>
+  
+  <!-- 2. Sobald config geladen ist, alle Module geordnet nachladen -->
+  <script>
+    // Kurze Verzögerung stellen sicher, dass CONFIG im Speicher liegt
+    window.addEventListener('DOMContentLoaded', function() {
+      const scripts = [
         "App_Core.js",
         "App_View_Help.js",
         "App_Router.js",
@@ -126,21 +131,18 @@
         "Views_Leaderboard.js",
         "Views_AdminGruppe.js",
         "Views_SpielerEdit.js"
-        ];
-
-        // Liest appVersion aus config.js aus (mit Fallback, falls nicht vorhanden)
-        const version = (typeof CONFIG !== 'undefined' && CONFIG.appVersion) ? CONFIG.appVersion : Date.now();
-
-        // Fügt jedes Skript geordnet in den Head ein
-        scripts.forEach(function(src) {
+      ];
+  
+      const version = (typeof CONFIG !== 'undefined' && CONFIG.appVersion) ? CONFIG.appVersion : Date.now();
+  
+      scripts.forEach(function(src) {
         const script = document.createElement('script');
         script.src = src + '?v=' + encodeURIComponent(version);
-        // async = false garantiert die strikte Einhaltung der Reihenfolge bei der Ausführung
-        script.async = false; 
+        script.async = false;
         document.head.appendChild(script);
-        });
-    })();
-    </script>
-
+      });
+    });
+  </script>
+  
 </body>
 </html>
