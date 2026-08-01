@@ -112,10 +112,10 @@ app.initStart = function()
             .getInitialAppData();
     }
     // 2. Wenn über Web / GitHub Pages (über App_Logic_Bridge.js und config.js)
-    else if (typeof app.logic !== 'undefined' && typeof app.logic.apiRequest === 'function')
+    else if (typeof app.logic !== 'undefined' && typeof app.logic.fetchFromGAS === 'function')
     {
         console.log("[START] Lade initiale App-Daten über Bridge...");
-        app.logic.apiRequest('getInitialAppData', {})
+        app.logic.fetchFromGAS('getInitialAppData', {})
             .then(function(response) {
                 console.log("[START] Daten erfolgreich von GAS empfangen:", response);
                 app.onDataLoaded(response);
