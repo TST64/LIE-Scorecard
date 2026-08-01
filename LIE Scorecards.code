@@ -1649,10 +1649,9 @@ app.logic.triggerMasterReset = function()
 
 ##### <App_Router.js>:
 ----------------------------------------------------------------------
-
 // =========================================================================
 // BMAssistent / LIE Scorecard - Router-Komponente mit Auto-Safe Guard
-// App_Router.html
+// App_Router.js
 // BSD (Allman) Style
 // =========================================================================
 
@@ -1701,18 +1700,23 @@ app.router =
             case 'login':
                 container.innerHTML = app.views.login();
                 break;
+
             case 'pin_aendern':
                 container.innerHTML = app.views.pin_aendern();
                 break;
+
             case 'dashboard':
                 container.innerHTML = app.views.dashboard();
                 break;
+
             case 'spieltage':
                 container.innerHTML = app.views.spieltage();
                 break;
+
             case 'spieltag_neu':
                 container.innerHTML = app.views.spieltag_neu();
                 break;
+
             case 'leaderboard':
                 if (params && params.id)
                 {
@@ -1720,6 +1724,7 @@ app.router =
                     app.logic.startLivePolling(params.id);
                 }
                 break;
+
             case 'score_eingabe':
                 if (params && params.id && params.hole)
                 {
@@ -1727,18 +1732,34 @@ app.router =
                     app.logic.startLivePolling(params.id, params.hole, params.flightSeq);
                 }
                 break;
+
             case 'spieler':
                 container.innerHTML = app.views.spieler_liste();
                 break;
+
             case 'spieler_edit':
                 container.innerHTML = app.views.spieler_edit(params ? params.id : null);
                 break;
+
+            case 'admin':
+                if (typeof app.views.admin === 'function')
+                {
+                    container.innerHTML = app.views.admin();
+                }
+                else
+                {
+                    container.innerHTML = '<p class="text-stone-400 p-4">Admin-Ansicht nicht verfügbar.</p>';
+                }
+                break;
+
             case 'help':
                 container.innerHTML = app.views.help();
                 break;
+
             default:
                 container.innerHTML = '<p class="text-stone-400 p-4">Ansicht nicht gefunden.</p>';
         }
+
         window.scrollTo(0, 0);
     },
 
@@ -1751,13 +1772,17 @@ app.router =
 
         const actionBtn = document.getElementById('header-action-btn');
         const navBar = document.getElementById('bottom-nav');
+        const adminNavBtn = document.getElementById('nav-admin');
+
         if (!actionBtn || !navBar) 
         {
             return;
         }
 
+        const isAdmin = app.state.currentUser && app.state.currentUser.role === 'Admin';
         const isLeiter = app.state.currentUser && (app.state.currentUser.role === 'Admin' || app.state.currentUser.role === 'Spielleiter');
 
+        // Header-Aktions-Button (+ Plus zum Runden anlegen)
         if (viewName === 'spieltage' && isLeiter)
         {
             actionBtn.classList.remove('hidden');
@@ -1767,6 +1792,20 @@ app.router =
             actionBtn.classList.add('hidden');
         }
 
+        // Steuerung des Admin-Buttons in der Bottom Navigation
+        if (adminNavBtn)
+        {
+            if (isAdmin)
+            {
+                adminNavBtn.classList.remove('hidden');
+            }
+            else
+            {
+                adminNavBtn.classList.add('hidden');
+            }
+        }
+
+        // Sichtbarkeit der gesamten Footer-Leiste
         if (viewName === 'login')
         {
             navBar.classList.add('hidden');
@@ -1775,16 +1814,19 @@ app.router =
         {
             navBar.classList.remove('hidden');
             
+            // Zurücksetzen aller Tab-Stylings
             document.querySelectorAll('#bottom-nav button').forEach(function(btn)
             {
                 btn.classList.remove('text-emerald-600', 'font-bold');
                 btn.classList.add('text-stone-400');
             });
 
+            // Aktiven Tab ermitteln
             let activeTabId = "";
             if (viewName === 'dashboard') activeTabId = 'nav-dash';
             if (viewName === 'spieltage' || viewName === 'spieltag_neu' || viewName === 'leaderboard') activeTabId = 'nav-rounds';
             if (viewName === 'spieler' || viewName === 'spieler_edit') activeTabId = 'nav-players';
+            if (viewName === 'admin') activeTabId = 'nav-admin';
             if (viewName === 'help') activeTabId = 'nav-help';
 
             const activeBtn = document.getElementById(activeTabId);
@@ -1796,7 +1838,6 @@ app.router =
         }
     }
 };
-
 
 
 ##### <App_Start.js>:
@@ -3127,8 +3168,8 @@ function cleanupDuplicateScorecards()
 ----------------------------------------------------------------------
 // config.js
 const CONFIG = {
-    API_URL: "https://script.google.com/macros/s/AKfycby5NS2VNfFj5Ec39DEtpNtn37IB92IREMGCOYlCZy5hdnRdix4jrtJygLjgbyZErtQ4tg/exec",
-    appVersion: "1.10.30"
+    API_URL: "https://script.google.com/macros/s/AKfycbw0kvZ_JqGNdRYTr7se8VRszZSFnTWQfNGTXiQSvoecERUBAxmqiGH7L9NDmk-U40rLqg/exec",
+    appVersion: "1.1.10.31"
   };
 
 
@@ -3226,6 +3267,11 @@ const CONFIG = {
             <button id="nav-help" onclick="app.router.navigate('help')" class="nav-btn flex flex-col items-center text-stone-400 hover:text-emerald-600 transition px-2 py-1 touch-target">
                 <i class="fas fa-question-circle text-base"></i>
                 <span class="text-[10px] mt-0.5">Hilfe</span>
+            </button>
+            <!-- NEU: Dezidierter Admin-Button (Standardmäßig versteckt) -->
+            <button id="nav-admin" onclick="app.router.navigate('admin')" class="nav-btn flex flex-col items-center text-stone-400 hover:text-amber-600 transition px-2 py-1 touch-target hidden">
+                <i class="fas fa-user-shield text-base"></i>
+                <span class="text-[10px] mt-0.5">Admin</span>
             </button>
         </nav>
 
@@ -3581,117 +3627,94 @@ function clearTestDataBase()
 /**
  * Views_Admin.js
  * Admin-Sonderfunktionen & System-Tools
+ * BSD (Allman) Style
  */
 
-const Views_Admin = {
-    render: function (containerId) {
-      const container = document.getElementById(containerId);
-      if (!container) return;
-  
-      container.innerHTML = `
-        <div class="admin-view-container card-panel">
-          <h3>⚙️ Admin- & Systemverwaltung</h3>
-          <p class="text-muted">Zugriff nur für Administratoren.</p>
-          <hr>
-  
-          <!-- 1. Datenbank & Synchronisation -->
-          <div class="admin-section mb-4">
-            <h5>💾 Datenbank & Archiv</h5>
-            <button id="btn-admin-vault-sync" class="btn btn-success w-100 mt-2">
-              <i class="fas fa-database"></i> Daten jetzt im Vault sichern
-            </button>
-          </div>
-  
-          <hr>
-  
-          <!-- 2. Gefahrenzone (Testbetrieb) -->
-          <div class="admin-section danger-zone p-3 rounded border border-danger">
-            <h5 class="text-danger">☣️ TESTBETRIEB GEFAHRENZONE</h5>
-            <p class="small text-muted">Achtung: Diese Aktionen löschen Daten unwiderruflich!</p>
-            
-            <button id="btn-admin-delete-player" class="btn btn-outline-danger w-100 mb-2">
-              <i class="fas fa-user-slash"></i> Spieler unwiderruflich löschen
-            </button>
-  
-            <button id="btn-admin-reset-all" class="btn btn-danger w-100">
-              <i class="fas fa-bomb"></i> Spieldaten komplett löschen
-            </button>
-          </div>
+app.views = app.views || {};
+
+app.views.admin = function()
+{
+    const spielerOptions = (app.state.spieler || []).map(function(s)
+    {
+        return `<option value="${s.id}">${s.name} (@${s.nickname})</option>`;
+    }).join('');
+
+    return `
+        <div class="space-y-5 pb-12">
+            <!-- Header -->
+            <div class="flex items-center space-x-2">
+                <button onclick="app.router.navigate('dashboard')" class="text-stone-500 touch-target"><i class="fas fa-arrow-left"></i></button>
+                <div>
+                    <h2 class="text-lg font-bold text-stone-800">System- & Adminverwaltung</h2>
+                    <p class="text-xs text-stone-400 -mt-1">Zentrale Steuerung & Gefahrenzone</p>
+                </div>
+            </div>
+
+            <div class="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs space-y-5">
+                
+                <!-- 1. DATENBANK & ARCHIV -->
+                <div class="space-y-2">
+                    <h4 class="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fas fa-database text-emerald-600"></i> Datenbank & Vault
+                    </h4>
+                    <p class="text-xs text-stone-500 leading-relaxed">
+                        Sichert den aktuellen Stand aller Tabellen serialisiert im Vault-Archivblatt.
+                    </p>
+                    <button onclick="app.logic.triggerVaultSync()" id="admin-vault-sync-btn" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs flex items-center justify-center gap-2 touch-target">
+                        <i class="fas fa-box-archive"></i>
+                        <span>Daten jetzt im Vault sichern</span>
+                    </button>
+                </div>
+
+                <hr class="border-stone-100">
+
+                <!-- 2. MITGLIEDER-MANAGEMENT (ADMIN-ACTIONS) -->
+                <div class="space-y-2">
+                    <h4 class="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fas fa-user-gear text-amber-600"></i> Spieler-Sonderfunktionen
+                    </h4>
+                    <div class="flex flex-col space-y-2">
+                        <select id="admin-delete-spieler-select" class="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-xs outline-none font-medium">
+                            <option value="" disabled selected>Spieler zum Löschen auswählen...</option>
+                            ${spielerOptions}
+                        </select>
+                        <button onclick="app.logic.adminDeletePlayerFromSelect()" class="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold py-2.5 rounded-xl transition text-xs flex items-center justify-center gap-1.5 touch-target">
+                            <i class="fas fa-user-slash"></i>
+                            <span>Ausgewählten Spieler löschen</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. GEFAHRENZONE (RESET) -->
+                <div class="p-4 bg-red-50/70 border border-red-200 rounded-2xl space-y-3">
+                    <h4 class="text-xs font-bold text-red-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fas fa-radiation"></i> Testbetrieb Gefahrenzone
+                    </h4>
+                    <p class="text-[11px] text-red-600 leading-relaxed">
+                        Achtung: Dies löscht alle gespielten Runden, Flights und abgegebenen Scorekarten unwiderruflich!
+                    </p>
+                    <button onclick="app.logic.triggerMasterReset()" id="master-reset-db-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs flex items-center justify-center gap-2 touch-target">
+                        <i class="fas fa-bomb"></i>
+                        <span>Spieldaten komplett löschen</span>
+                    </button>
+                </div>
+
+            </div>
         </div>
-      `;
-  
-      // Event-Listener direkt nach dem Rendern binden
-      this.bindEvents();
-    },
-  
-    bindEvents: function () {
-      // 1. Vault Sync Event
-      const btnVault = document.getElementById('btn-admin-vault-sync');
-      if (btnVault) {
-        btnVault.addEventListener('click', () => {
-          if (confirm('Möchtest du die Spieldaten jetzt im Vault sichern?')) {
-            // Aufruf deiner bestehenden API-Funktion
-            this.handleVaultSync();
-          }
-        });
-      }
-  
-      // 2. Spieler löschen Event
-      const btnDeletePlayer = document.getElementById('btn-admin-delete-player');
-      if (btnDeletePlayer) {
-        btnDeletePlayer.addEventListener('click', () => {
-          // Hier deine bestehende Modal-/Lösch-Logik für Spieler aufrufen
-          this.handleDeletePlayer();
-        });
-      }
-  
-      // 3. Spieldaten komplett löschen (Master Reset)
-      const btnResetAll = document.getElementById('btn-admin-reset-all');
-      if (btnResetAll) {
-        btnResetAll.addEventListener('click', () => {
-          const confirmText = prompt('Gib "LÖSCHEN" ein, um alle Spieldaten unwiderruflich zu entfernen:');
-          if (confirmText === 'LÖSCHEN') {
-            this.handleMasterReset();
-          }
-        });
-      }
-    },
-  
-    handleVaultSync: async function () {
-      try {
-        // Nutzt den synchronisierten apiRequest / fetchFromGAS Bridge-Aufruf
-        const res = await apiRequest('syncToVault');
-        if (res && res.success) {
-          alert('Vault-Synchronisation erfolgreich abgeschlossen!');
-        } else {
-          alert('Fehler beim Sichern: ' + (res.message || 'Unbekannter Fehler'));
-        }
-      } catch (err) {
-        console.error('Vault Sync Fehler:', err);
-        alert('Netzwerk- oder Serverfehler beim Vault-Sync.');
-      }
-    },
-  
-    handleDeletePlayer: function () {
-      // Hier kannst du die bestehende Methode aufrufen oder deinen Dialog starten
-      console.log('Spieler löschen angestoßen...');
-    },
-  
-    handleMasterReset: async function () {
-      try {
-        const res = await apiRequest('resetAllSpieldaten');
-        if (res && res.success) {
-          alert('Alle Spieldaten wurden zurückgesetzt.');
-          location.reload();
-        } else {
-          alert('Fehler beim Zurücksetzen: ' + res.message);
-        }
-      } catch (err) {
-        console.error('Reset Fehler:', err);
-        alert('Fehler beim Zurücksetzen der Spieldaten.');
-      }
+    `;
+};
+
+// Hilfsfunktion für die Spielerauswahl im Admin-Menü
+app.logic.adminDeletePlayerFromSelect = function()
+{
+    const select = document.getElementById('admin-delete-spieler-select');
+    if (!select || !select.value)
+    {
+        app.logic.showToast("Bitte wähle zuerst einen Spieler aus!", "info");
+        return;
     }
-  };
+    app.logic.deletePlayer(select.value);
+};
 
 
 ##### <Views_AdminGruppe.js>:
@@ -3700,7 +3723,9 @@ const Views_Admin = {
 // View: Gruppe & Handicap-Verwaltung
 app.views.spieler_liste = function()
 {
-    const isAdmin = app.state.currentUser && (app.state.currentUser.role === 'Admin' || app.state.currentUser.role === 'Spielleiter');
+    const currentUser = app.state.currentUser;
+    const isAdmin = currentUser && currentUser.role === 'Admin';
+    const isLeiter = currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Spielleiter');
 
     let spielerListHtml = "";
     
@@ -3708,9 +3733,12 @@ app.views.spieler_liste = function()
     {
         spielerListHtml = app.state.spieler.map(function(s) 
         {
-            // Wenn der User Admin/Spielleiter ist, bekommt er ein Stift-Icon zum Editieren
-            const editActionHtml = isAdmin ? `
-                <button onclick="app.router.navigate('spieler_edit', { id: '${s.id}' })" class="text-stone-400 hover:text-emerald-700 p-2 touch-target transition">
+            const istMeinProfil = currentUser && String(currentUser.id).trim() === String(s.id).trim();
+            const darfEditieren = isAdmin || istMeinProfil;
+
+            // Stift-Icon rendern, wenn Admin ODER eigenes Profil
+            const editActionHtml = darfEditieren ? `
+                <button onclick="app.router.navigate('spieler_edit', { id: '${s.id}' })" class="text-stone-400 hover:text-emerald-700 p-2 touch-target transition" title="Profil bearbeiten">
                     <i class="fas fa-user-edit text-base"></i>
                 </button>
             ` : `
@@ -3727,12 +3755,12 @@ app.views.spieler_liste = function()
                             ${String(s.nickname || s.name).substring(0, 2)}
                         </div>
                         <div>
-                            <h4 class="font-semibold text-stone-800">${s.name}</h4>
+                            <h4 class="font-semibold text-stone-800">${s.name} ${istMeinProfil ? '<span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded ml-1">Du</span>' : ''}</h4>
                             <p class="text-[10px] text-stone-400 font-medium -mt-0.5">@${s.nickname} &bull; ${s.role}</p>
                         </div>
                     </div>
                     <div class="flex items-center space-x-2">
-                        ${isAdmin ? `<div class="text-right text-xs pr-1"><span class="font-bold text-emerald-700">L:${s.hcpLIE}</span><br><span class="text-stone-400 text-[10px]">D:${s.hcpOfficial}</span></div>` : ''}
+                        ${darfEditieren ? `<div class="text-right text-xs pr-1"><span class="font-bold text-emerald-700">L:${s.hcpLIE}</span><br><span class="text-stone-400 text-[10px]">D:${s.hcpOfficial}</span></div>` : ''}
                         ${editActionHtml}
                     </div>
                 </div>
@@ -3748,7 +3776,7 @@ app.views.spieler_liste = function()
         <div class="space-y-4">
             <div>
                 <h2 class="text-lg font-bold text-stone-800">Die LIE-Gruppe</h2>
-                ${isAdmin ? '<p class="text-[11px] text-emerald-700 font-semibold mt-0.5"><i class="fas fa-user-shield"></i> Admin-Modus: Tippe auf das Stift-Icon oder das Plus oben, um Mitglieder zu verwalten.</p>' : ''}
+                ${isLeiter ? '<p class="text-[11px] text-emerald-700 font-semibold mt-0.5"><i class="fas fa-user-shield"></i> Tippe auf das Stift-Icon, um Profildaten anzupassen.</p>' : ''}
             </div>
             <div class="space-y-2">
                 ${spielerListHtml}
@@ -4855,11 +4883,26 @@ app.views.score_eingabe = function(spieltagId, holeNumber, targetFlightSeq)
 // View: Spieler anlegen oder editieren
 app.views.spieler_edit = function(spielerId)
 {
+    const currentUser = app.state.currentUser;
+    const isAdmin = currentUser && currentUser.role === 'Admin';
+    
     const s = spielerId ? app.state.spieler.find(function(p) { return String(p.id).trim() === String(spielerId).trim(); }) : null;
     const isNew = s === null;
 
-    const title = isNew ? "Neuen Spieler anlegen" : "Spielerprofil bearbeiten";
-    
+    // Sicherheits-Check Guard: Wenn Nicht-Admin versucht ein fremdes Profil zu öffnen -> Abbrechen!
+    if (!isAdmin && s && String(s.id).trim() !== String(currentUser.id).trim())
+    {
+        setTimeout(function() {
+            app.logic.showToast("Zugriff verweigert! Du kannst nur dein eigenes Profil bearbeiten.", "error");
+            app.router.navigate('spieler');
+        }, 10);
+        return '<p class="text-stone-400 p-4">Zugriff verweigert...</p>';
+    }
+
+    const title = isNew ? "Neuen Spieler anlegen" : (isAdmin ? "Spielerprofil bearbeiten" : "Mein Profil bearbeiten");
+    const disabledAttrForUsers = isAdmin ? '' : 'disabled class="bg-stone-100 border border-stone-200 text-stone-400 text-xs rounded-xl px-3 py-2 outline-none font-bold cursor-not-allowed"';
+    const inputStyleForUsers = isAdmin ? 'class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-bold"' : disabledAttrForUsers;
+
     return `
         <div class="space-y-4">
             <div class="flex items-center space-x-2">
@@ -4870,11 +4913,18 @@ app.views.spieler_edit = function(spielerId)
             <div class="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs space-y-4">
                 
                 <div class="grid grid-cols-3 gap-2">
-                    <div class="flex flex-col space-y-1 col-span-1">
-                        <label class="text-[10px] font-bold text-stone-500 uppercase">Spieler-ID *</label>
-                        <input type="text" id="edit-sp-id" value="${!isNew ? s.id : ''}" ${!isNew ? 'disabled class="bg-stone-100 border border-stone-200 text-stone-400 text-xs rounded-xl px-3 py-2 outline-none font-bold"' : 'class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-bold" placeholder="z.B. 106"'} />
-                    </div>
-                    <div class="flex flex-col space-y-1 col-span-2">
+                    <!-- ID-Feld nur für Admins anzeigen -->
+                    ${isAdmin ? `
+                        <div class="flex flex-col space-y-1 col-span-1">
+                            <label class="text-[10px] font-bold text-stone-500 uppercase">ID *</label>
+                            <input type="text" id="edit-sp-id" value="${!isNew ? s.id : ''}" ${!isNew ? 'disabled class="bg-stone-100 border border-stone-200 text-stone-400 text-xs rounded-xl px-3 py-2 outline-none font-bold"' : 'class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-bold" placeholder="z.B. 106"'} />
+                        </div>
+                    ` : `
+                        <!-- Verstecktes ID-Feld für die Logik beim Speichern -->
+                        <input type="hidden" id="edit-sp-id" value="${s.id}" />
+                    `}
+                    
+                    <div class="flex flex-col space-y-1 ${isAdmin ? 'col-span-2' : 'col-span-3'}">
                         <label class="text-[10px] font-bold text-stone-500 uppercase">Kürzel / Nickname *</label>
                         <input type="text" id="edit-sp-nickname" value="${!isNew ? s.nickname : ''}" class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-semibold" placeholder="z.B. Tiger" />
                     </div>
@@ -4890,21 +4940,23 @@ app.views.spieler_edit = function(spielerId)
                     <input type="email" id="edit-sp-email" value="${!isNew ? s.email : ''}" class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-mono" placeholder="spieler@example.com" />
                 </div>
 
+                <!-- Nur Admins dürfen Handicaps verändern -->
                 <div class="grid grid-cols-2 gap-3">
                     <div class="flex flex-col space-y-1">
-                        <label class="text-[10px] font-bold text-stone-500 uppercase">DGV-Handicap</label>
-                        <input type="number" step="0.1" id="edit-sp-hcpoff" value="${!isNew ? s.hcpOfficial : '54.0'}" class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-bold" />
+                        <label class="text-[10px] font-bold text-stone-500 uppercase">DGV-Handicap ${!isAdmin ? '🔒' : ''}</label>
+                        <input type="number" step="0.1" id="edit-sp-hcpoff" value="${!isNew ? s.hcpOfficial : '54.0'}" ${inputStyleForUsers} />
                     </div>
                     <div class="flex flex-col space-y-1">
-                        <label class="text-[10px] font-bold text-stone-500 uppercase">LIE-Handicap</label>
-                        <input type="number" id="edit-sp-hcplie" value="${!isNew ? s.hcpLIE : '54'}" class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none font-bold text-emerald-700" />
+                        <label class="text-[10px] font-bold text-stone-500 uppercase">LIE-Handicap ${!isAdmin ? '🔒' : ''}</label>
+                        <input type="number" id="edit-sp-hcplie" value="${!isNew ? s.hcpLIE : '54'}" ${inputStyleForUsers} />
                     </div>
                 </div>
 
+                <!-- Nur Admins dürfen Tee & Rolle verändern -->
                 <div class="grid grid-cols-2 gap-3">
                     <div class="flex flex-col space-y-1">
-                        <label class="text-[10px] font-bold text-stone-500 uppercase">Abschlag (Tee)</label>
-                        <select id="edit-sp-tee" class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none">
+                        <label class="text-[10px] font-bold text-stone-500 uppercase">Abschlag (Tee) ${!isAdmin ? '🔒' : ''}</label>
+                        <select id="edit-sp-tee" ${isAdmin ? 'class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none"' : 'disabled class="bg-stone-100 border border-stone-200 text-stone-400 text-xs rounded-xl px-3 py-2 outline-none cursor-not-allowed"'}>
                             <option value="Gelb" ${!isNew && s.teeColor === 'Gelb' ? 'selected' : ''}>Gelb (Herren)</option>
                             <option value="Rot" ${!isNew && s.teeColor === 'Rot' ? 'selected' : ''}>Rot (Damen)</option>
                             <option value="Blau" ${!isNew && s.teeColor === 'Blau' ? 'selected' : ''}>Blau</option>
@@ -4912,8 +4964,8 @@ app.views.spieler_edit = function(spielerId)
                         </select>
                     </div>
                     <div class="flex flex-col space-y-1">
-                        <label class="text-[10px] font-bold text-stone-500 uppercase">Rolle / Rechte</label>
-                        <select id="edit-sp-role" class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none">
+                        <label class="text-[10px] font-bold text-stone-500 uppercase">Rolle / Rechte ${!isAdmin ? '🔒' : ''}</label>
+                        <select id="edit-sp-role" ${isAdmin ? 'class="bg-stone-50 border border-stone-200 text-xs rounded-xl px-3 py-2 focus:border-emerald-600 outline-none"' : 'disabled class="bg-stone-100 border border-stone-200 text-stone-400 text-xs rounded-xl px-3 py-2 outline-none cursor-not-allowed"'}>
                             <option value="Spieler" ${!isNew && s.role === 'Spieler' ? 'selected' : ''}>Spieler</option>
                             <option value="Spielleiter" ${!isNew && s.role === 'Spielleiter' ? 'selected' : ''}>Spielleiter</option>
                             <option value="Admin" ${!isNew && s.role === 'Admin' ? 'selected' : ''}>Admin</option>
@@ -4925,37 +4977,10 @@ app.views.spieler_edit = function(spielerId)
                     <i class="fas fa-save mr-1"></i> Profil speichern
                 </button>
 
-                ${!isNew ? `
-                    <div class="pt-3 border-t border-stone-100 flex flex-col space-y-2">
-                        <button onclick="app.logic.resetPlayerPin('${s.id}')" id="reset-pin-btn" class="w-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold py-2.5 rounded-xl transition text-xs">
-                            <i class="fas fa-key mr-1"></i> PIN auf '4722' zurücksetzen
-                        </button>
-                        
-                        <button onclick="app.logic.deletePlayer('${s.id}')" id="delete-player-btn" class="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold py-2.5 rounded-xl transition text-xs">
-                            <i class="fas fa-user-slash mr-1"></i> Spieler unwiderruflich löschen
-                        </button>
-
-                        <div class="pt-4 mt-2 border-t border-stone-200/60">
-                            <p class="text-[10px] text-red-500 font-bold uppercase tracking-wider mb-1 px-1">
-                                <i class="fas fa-radiation"></i> Testbetrieb Gefahrenzone
-                            </p>
-                            <button onclick="app.logic.triggerMasterReset()" id="master-reset-db-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-xs">
-                                <i class="fas fa-bomb mr-1"></i> Spieldaten komplett löschen
-                            </button>
-                        </div>
-                        
-                        <!-- Admin-Aktions-Kachel für den Vault-Sync -->
-                        <div class="pt-3 border-t border-stone-100">
-                            <button onclick="app.logic.triggerVaultSync()" id="admin-vault-sync-btn" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-xs">
-                                <i class="fas fa-database mr-1"></i> Daten jetzt im Vault sichern
-                            </button>
-                        </div>
-                ` : '<p class="text-[10px] text-stone-400 italic text-center">Hinweis: Neue Spieler erhalten automatisch die temporäre PIN "4722" und müssen diese beim ersten Login ändern.</p>'}
             </div>
         </div>
     `;
 };
-
 
 
 ##### <Views_Spieltage.js>:

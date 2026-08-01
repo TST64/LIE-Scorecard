@@ -17,6 +17,8 @@ function doGet(e)
         const body = JSON.parse(e.parameter.data);
         const action = body.action;
         const callback = e.parameter.callback;
+
+        Logger.log("doGet:" + action);
         
         let result;
 
@@ -77,7 +79,10 @@ function doGet(e)
             case 'softDeleteSpieltagServer':
                 result = softDeleteSpieltagServer(body.spieltagId);
                 break;
-
+                // In Code.js im Switch-Block ergänzen:
+            case 'syncToVault':
+                result = syncToVault();
+                break;
             default:
                 throw new Error("Unbekannte Action: " + action);
         }
@@ -606,7 +611,7 @@ function requestTempPin(spielerId)
 
         for (let i = 1; i < spielerData.length; i++)
         {
-            if (parseInt(spielerData[i][0]) === parseInt(spielerId))
+            if (String(spielerData[i][0]).trim() === String(spielerId).trim())
             {
                 spielerName = String(spielerData[i][2] || spielerData[i][1]).trim();
                 spielerEmail = String(spielerData[i][3]).trim();
@@ -651,7 +656,7 @@ function requestTempPin(spielerId)
         SpreadsheetApp.flush();
 
         const subject = "Dein Einmal-Code für die LIE Scorecard";
-        const bodyText = `Hallo ${spielerName},\n\ndein Einmal-Code für die Anforderung einer neuen PIN lautet: ${tempPin}\n\nBitte gib diesen Code in der LIE Scorecard App ein. Deine bisherige PIN bleibt solange gültig, bis du dich mit diesem Code anmeldest.\n\nSportliche Grüße,\nDein LIE Scorecard Team`;
+        const bodyText = `Hallo ${spielerName},\n\ndein Einmal-Code für die Anforderung einer neuen PIN lautet: ${tempPin}\n\nBitte gib diesen Code in der LIE Scorecard App, unter https://www.lochihnein.de ein. Deine bisherige PIN bleibt solange gültig, bis du dich mit diesem Code anmeldest.\n\nSportliche Grüße,\nDein LIE Scorecard Team`;
         
         MailApp.sendEmail(spielerEmail, subject, bodyText);
 
