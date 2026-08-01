@@ -2,9 +2,7 @@
 // View: Gruppe & Handicap-Verwaltung
 app.views.spieler_liste = function()
 {
-    const currentUser = app.state.currentUser;
-    const isAdmin = currentUser && currentUser.role === 'Admin';
-    const isLeiter = currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Spielleiter');
+    const isAdmin = app.state.currentUser && (app.state.currentUser.role === 'Admin' || app.state.currentUser.role === 'Spielleiter');
 
     let spielerListHtml = "";
     
@@ -12,12 +10,9 @@ app.views.spieler_liste = function()
     {
         spielerListHtml = app.state.spieler.map(function(s) 
         {
-            const istMeinProfil = currentUser && String(currentUser.id).trim() === String(s.id).trim();
-            const darfEditieren = isAdmin || istMeinProfil;
-
-            // Stift-Icon rendern, wenn Admin ODER eigenes Profil
-            const editActionHtml = darfEditieren ? `
-                <button onclick="app.router.navigate('spieler_edit', { id: '${s.id}' })" class="text-stone-400 hover:text-emerald-700 p-2 touch-target transition" title="Profil bearbeiten">
+            // Wenn der User Admin/Spielleiter ist, bekommt er ein Stift-Icon zum Editieren
+            const editActionHtml = isAdmin ? `
+                <button onclick="app.router.navigate('spieler_edit', { id: '${s.id}' })" class="text-stone-400 hover:text-emerald-700 p-2 touch-target transition">
                     <i class="fas fa-user-edit text-base"></i>
                 </button>
             ` : `
@@ -34,12 +29,12 @@ app.views.spieler_liste = function()
                             ${String(s.nickname || s.name).substring(0, 2)}
                         </div>
                         <div>
-                            <h4 class="font-semibold text-stone-800">${s.name} ${istMeinProfil ? '<span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded ml-1">Du</span>' : ''}</h4>
+                            <h4 class="font-semibold text-stone-800">${s.name}</h4>
                             <p class="text-[10px] text-stone-400 font-medium -mt-0.5">@${s.nickname} &bull; ${s.role}</p>
                         </div>
                     </div>
                     <div class="flex items-center space-x-2">
-                        ${darfEditieren ? `<div class="text-right text-xs pr-1"><span class="font-bold text-emerald-700">L:${s.hcpLIE}</span><br><span class="text-stone-400 text-[10px]">D:${s.hcpOfficial}</span></div>` : ''}
+                        ${isAdmin ? `<div class="text-right text-xs pr-1"><span class="font-bold text-emerald-700">L:${s.hcpLIE}</span><br><span class="text-stone-400 text-[10px]">D:${s.hcpOfficial}</span></div>` : ''}
                         ${editActionHtml}
                     </div>
                 </div>
@@ -55,7 +50,7 @@ app.views.spieler_liste = function()
         <div class="space-y-4">
             <div>
                 <h2 class="text-lg font-bold text-stone-800">Die LIE-Gruppe</h2>
-                ${isLeiter ? '<p class="text-[11px] text-emerald-700 font-semibold mt-0.5"><i class="fas fa-user-shield"></i> Tippe auf das Stift-Icon, um Profildaten anzupassen.</p>' : ''}
+                ${isAdmin ? '<p class="text-[11px] text-emerald-700 font-semibold mt-0.5"><i class="fas fa-user-shield"></i> Admin-Modus: Tippe auf das Stift-Icon oder das Plus oben, um Mitglieder zu verwalten.</p>' : ''}
             </div>
             <div class="space-y-2">
                 ${spielerListHtml}

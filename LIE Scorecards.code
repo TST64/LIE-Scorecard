@@ -1915,10 +1915,10 @@ app.initStart = function()
             .getInitialAppData();
     }
     // 2. Wenn über Web / GitHub Pages (über App_Logic_Bridge.js und config.js)
-    else if (typeof app.logic !== 'undefined' && typeof app.logic.fetchFromGAS === 'function')
+    else if (typeof app.logic !== 'undefined' && typeof app.logic.apiRequest === 'function')
     {
         console.log("[START] Lade initiale App-Daten über Bridge...");
-        app.logic.fetchFromGAS('getInitialAppData', {})
+        app.logic.apiRequest('getInitialAppData', {})
             .then(function(response) {
                 console.log("[START] Daten erfolgreich von GAS empfangen:", response);
                 app.onDataLoaded(response);
@@ -3127,8 +3127,8 @@ function cleanupDuplicateScorecards()
 ----------------------------------------------------------------------
 // config.js
 const CONFIG = {
-    API_URL: "https://script.google.com/macros/s/AKfycbwNkUPYoLhQjY-xFpxLCFBUFTh1fID6rTiYcunTQ4yXihkgTDMRETRfNpZsJ2ePG6EQfA/exec",
-    appVersion: "1.0.0"
+    API_URL: "https://script.google.com/macros/s/AKfycby5NS2VNfFj5Ec39DEtpNtn37IB92IREMGCOYlCZy5hdnRdix4jrtJygLjgbyZErtQ4tg/exec",
+    appVersion: "1.10.30"
   };
 
 
@@ -3155,7 +3155,10 @@ const CONFIG = {
     <!-- PWA Manifest & Mobile Styling -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#047857">
+    <!-- Neu / Standardkonform: -->
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="LIE Scorecard">
     <link rel="apple-touch-icon" href="img/LIE_Logo II.jpeg">    
@@ -3275,6 +3278,7 @@ const CONFIG = {
                     "Views_SpieltagNeu.js",
                     "Views_ScoreEingabe.js",
                     "Views_Leaderboard.js",
+                    "Views_Admin.js",
                     "Views_AdminGruppe.js",
                     "Views_SpielerEdit.js"
                 ];
@@ -3371,7 +3375,7 @@ button, a, .nav-btn
 
 ##### <sw.js>:
 ----------------------------------------------------------------------
-// sw.js - Minimaler Service Worker für PWA-Installierbarkeit
+// sw.js - Robustere Fetch-Behandlung
 const CACHE_NAME = 'lie-scorecard-v1';
 
 self.addEventListener('install', (event) => {
@@ -3383,8 +3387,17 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Leitet alle Netzwerk-Anfragen normal durch
-  event.respondWith(fetch(event.request));
+  event.respondWith(
+    fetch(event.request).catch((err) => {
+      console.warn('[SW] Netzanfrage fehlgeschlagen:', event.request.url);
+      // Fängt Network Errors ab, damit die Konsole sauber bleibt
+      return new Response('Netzwerkfehler', {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: new Headers({ 'Content-Type': 'text/plain' })
+      });
+    })
+  );
 });
 
 
@@ -3563,6 +3576,124 @@ function clearTestDataBase()
 
 
 
+##### <Views_Admin.js>:
+----------------------------------------------------------------------
+/**
+ * Views_Admin.js
+ * Admin-Sonderfunktionen & System-Tools
+ */
+
+const Views_Admin = {
+    render: function (containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+  
+      container.innerHTML = `
+        <div class="admin-view-container card-panel">
+          <h3>⚙️ Admin- & Systemverwaltung</h3>
+          <p class="text-muted">Zugriff nur für Administratoren.</p>
+          <hr>
+  
+          <!-- 1. Datenbank & Synchronisation -->
+          <div class="admin-section mb-4">
+            <h5>💾 Datenbank & Archiv</h5>
+            <button id="btn-admin-vault-sync" class="btn btn-success w-100 mt-2">
+              <i class="fas fa-database"></i> Daten jetzt im Vault sichern
+            </button>
+          </div>
+  
+          <hr>
+  
+          <!-- 2. Gefahrenzone (Testbetrieb) -->
+          <div class="admin-section danger-zone p-3 rounded border border-danger">
+            <h5 class="text-danger">☣️ TESTBETRIEB GEFAHRENZONE</h5>
+            <p class="small text-muted">Achtung: Diese Aktionen löschen Daten unwiderruflich!</p>
+            
+            <button id="btn-admin-delete-player" class="btn btn-outline-danger w-100 mb-2">
+              <i class="fas fa-user-slash"></i> Spieler unwiderruflich löschen
+            </button>
+  
+            <button id="btn-admin-reset-all" class="btn btn-danger w-100">
+              <i class="fas fa-bomb"></i> Spieldaten komplett löschen
+            </button>
+          </div>
+        </div>
+      `;
+  
+      // Event-Listener direkt nach dem Rendern binden
+      this.bindEvents();
+    },
+  
+    bindEvents: function () {
+      // 1. Vault Sync Event
+      const btnVault = document.getElementById('btn-admin-vault-sync');
+      if (btnVault) {
+        btnVault.addEventListener('click', () => {
+          if (confirm('Möchtest du die Spieldaten jetzt im Vault sichern?')) {
+            // Aufruf deiner bestehenden API-Funktion
+            this.handleVaultSync();
+          }
+        });
+      }
+  
+      // 2. Spieler löschen Event
+      const btnDeletePlayer = document.getElementById('btn-admin-delete-player');
+      if (btnDeletePlayer) {
+        btnDeletePlayer.addEventListener('click', () => {
+          // Hier deine bestehende Modal-/Lösch-Logik für Spieler aufrufen
+          this.handleDeletePlayer();
+        });
+      }
+  
+      // 3. Spieldaten komplett löschen (Master Reset)
+      const btnResetAll = document.getElementById('btn-admin-reset-all');
+      if (btnResetAll) {
+        btnResetAll.addEventListener('click', () => {
+          const confirmText = prompt('Gib "LÖSCHEN" ein, um alle Spieldaten unwiderruflich zu entfernen:');
+          if (confirmText === 'LÖSCHEN') {
+            this.handleMasterReset();
+          }
+        });
+      }
+    },
+  
+    handleVaultSync: async function () {
+      try {
+        // Nutzt den synchronisierten apiRequest / fetchFromGAS Bridge-Aufruf
+        const res = await apiRequest('syncToVault');
+        if (res && res.success) {
+          alert('Vault-Synchronisation erfolgreich abgeschlossen!');
+        } else {
+          alert('Fehler beim Sichern: ' + (res.message || 'Unbekannter Fehler'));
+        }
+      } catch (err) {
+        console.error('Vault Sync Fehler:', err);
+        alert('Netzwerk- oder Serverfehler beim Vault-Sync.');
+      }
+    },
+  
+    handleDeletePlayer: function () {
+      // Hier kannst du die bestehende Methode aufrufen oder deinen Dialog starten
+      console.log('Spieler löschen angestoßen...');
+    },
+  
+    handleMasterReset: async function () {
+      try {
+        const res = await apiRequest('resetAllSpieldaten');
+        if (res && res.success) {
+          alert('Alle Spieldaten wurden zurückgesetzt.');
+          location.reload();
+        } else {
+          alert('Fehler beim Zurücksetzen: ' + res.message);
+        }
+      } catch (err) {
+        console.error('Reset Fehler:', err);
+        alert('Fehler beim Zurücksetzen der Spieldaten.');
+      }
+    }
+  };
+
+
 ##### <Views_AdminGruppe.js>:
 ----------------------------------------------------------------------
 
@@ -3624,6 +3755,45 @@ app.views.spieler_liste = function()
             </div>
         </div>
     `;
+};
+
+app.logic.triggerVaultSync = function()
+{
+    const btn = document.getElementById('admin-vault-sync-btn');
+    if (btn)
+    {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1"></i> Synchronisiere Vault...`;
+    }
+
+    app.logic.apiRequest('syncToVault')
+        .then(function(response)
+        {
+            if (response && response.success)
+            {
+                const anzahl = response.count !== undefined ? response.count : 0;
+                app.logic.showToast(`Vault-Sync erfolgreich! (${anzahl} neue/aktualisierte Datensätze)`, "success");
+            }
+            else
+            {
+                app.logic.showToast("Fehler beim Vault-Sync: " + (response ? response.error : "Unbekannt"), "error");
+            }
+
+            if (btn)
+            {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-database mr-1"></i> Daten im Vault sichern`;
+            }
+        })
+        .catch(function(err)
+        {
+            app.logic.showToast("Netzwerkfehler beim Vault-Sync", "error");
+            if (btn)
+            {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-database mr-1"></i> Daten im Vault sichern`;
+            }
+        });
 };
 
 
@@ -4771,6 +4941,13 @@ app.views.spieler_edit = function(spielerId)
                             </p>
                             <button onclick="app.logic.triggerMasterReset()" id="master-reset-db-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-xs">
                                 <i class="fas fa-bomb mr-1"></i> Spieldaten komplett löschen
+                            </button>
+                        </div>
+                        
+                        <!-- Admin-Aktions-Kachel für den Vault-Sync -->
+                        <div class="pt-3 border-t border-stone-100">
+                            <button onclick="app.logic.triggerVaultSync()" id="admin-vault-sync-btn" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-xs">
+                                <i class="fas fa-database mr-1"></i> Daten jetzt im Vault sichern
                             </button>
                         </div>
                 ` : '<p class="text-[10px] text-stone-400 italic text-center">Hinweis: Neue Spieler erhalten automatisch die temporäre PIN "4722" und müssen diese beim ersten Login ändern.</p>'}
