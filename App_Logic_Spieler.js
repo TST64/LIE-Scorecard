@@ -97,12 +97,6 @@ app.logic.changePin = function()
         return;
     }
 
-    if (val1 === "4722")
-    {
-        app.logic.showToast("Du darfst nicht die Standard-PIN verwenden!", "info");
-        return;
-    }
-
     const btn = document.getElementById('change-pin-btn');
     if (btn)
     {
