@@ -89,6 +89,13 @@ app.views.spieler_edit = function(spielerId)
                                 <i class="fas fa-bomb mr-1"></i> Spieldaten komplett löschen
                             </button>
                         </div>
+                        
+                        <!-- Admin-Aktions-Kachel für den Vault-Sync -->
+                        <div class="pt-3 border-t border-stone-100">
+                            <button onclick="app.logic.triggerVaultSync()" id="admin-vault-sync-btn" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 rounded-xl transition text-xs shadow-xs">
+                                <i class="fas fa-database mr-1"></i> Daten jetzt im Vault sichern
+                            </button>
+                        </div>
                 ` : '<p class="text-[10px] text-stone-400 italic text-center">Hinweis: Neue Spieler erhalten automatisch die temporäre PIN "4722" und müssen diese beim ersten Login ändern.</p>'}
             </div>
         </div>
