@@ -216,5 +216,3 @@ app.logic.closePixelGolfGame = function()
     }
 };
 
-
-

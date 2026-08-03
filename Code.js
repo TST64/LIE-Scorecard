@@ -1080,10 +1080,10 @@ function savePixelGolfHighscore(spielerName, score)
         const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
         let tHighscores = ssApp.getSheetByName("app_PixelRunHighscores");
 
-        // Falls das Blatt noch nicht existiert, automatisch anlegen
+        // Falls das Blatt noch nicht existiert, automatisch mit dem RICHTIGEN Namen anlegen
         if (!tHighscores)
         {
-            tHighscores = ssApp.insertSheet("app_Highscores");
+            tHighscores = ssApp.insertSheet("app_PixelRunHighscores");
             tHighscores.appendRow(["id", "spielerName", "score", "datum", "syncedAt"]);
         }
 
@@ -1109,7 +1109,5 @@ function savePixelGolfHighscore(spielerName, score)
         return { success: false, error: err.toString() };
     }
 }
-
-
 
 
