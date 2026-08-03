@@ -1,5 +1,5 @@
 // config.js
 const CONFIG = {
-    API_URL: "https://script.google.com/macros/s/AKfycbyeQbE_twMmNJkr3Fv9PSl72Shw_deoIf72gKZnUZdsBlTJzFGnf-rm4uozu_tp2t-Kag/exec",
-    appVersion: "1.1.10.42"
+    API_URL: "https://script.google.com/macros/s/AKfycbz-J5f6pzUF5xRN4CEDU1kNX6bbFf-y922-hTZLrjxiJ_QmgY4WYuSg0IabruTuhprh/exec",
+    appVersion: "1.1.10.44"
   };
