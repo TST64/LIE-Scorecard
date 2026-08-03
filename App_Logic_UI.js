@@ -184,7 +184,7 @@ app.logic.triggerMasterReset = function()
     );
 };
 
-// Öffnet das Pixel Golf Run Mini-Game in einem Overlay Modal
+// Öffnet das Pixel Golf Run Mini-Game
 app.logic.openPixelGolfGame = function()
 {
     const currentUser = app.state.currentUser;
@@ -193,13 +193,25 @@ app.logic.openPixelGolfGame = function()
     const gameBaseUrl = "https://tst64.github.io/LIE-Scorecard-PixelGolfRun/";
     const fullGameUrl = `${gameBaseUrl}?player=${encodeURIComponent(spielerName)}`;
 
-    const iframe = document.getElementById('pixel-golf-iframe');
-    const modal = document.getElementById('pixel-golf-modal');
+    // Prüfen, ob es sich um ein Smartphone/Mobilgerät handelt (Bildschirmbreite < 640px)
+    const isMobile = window.innerWidth < 640;
 
-    if (iframe && modal)
+    if (isMobile)
     {
-        iframe.src = fullGameUrl;
-        modal.classList.remove('hidden');
+        // Auf Handys direkt im neuen Tab öffnen für perfektes Landschafts-Scaling
+        window.open(fullGameUrl, '_blank');
+    }
+    else
+    {
+        // Auf Tablets/Desktop im Overlay laden
+        const iframe = document.getElementById('pixel-golf-iframe');
+        const modal = document.getElementById('pixel-golf-modal');
+
+        if (iframe && modal)
+        {
+            iframe.src = fullGameUrl;
+            modal.classList.remove('hidden');
+        }
     }
 };
 

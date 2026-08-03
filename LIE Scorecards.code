@@ -1640,6 +1640,40 @@ app.logic.triggerMasterReset = function()
     );
 };
 
+// Öffnet das Pixel Golf Run Mini-Game in einem Overlay Modal
+app.logic.openPixelGolfGame = function()
+{
+    const currentUser = app.state.currentUser;
+    const spielerName = currentUser ? (currentUser.nickname || currentUser.name) : "Golfer";
+
+    const gameBaseUrl = "https://tst64.github.io/LIE-Scorecard-PixelGolfRun/";
+    const fullGameUrl = `${gameBaseUrl}?player=${encodeURIComponent(spielerName)}`;
+
+    const iframe = document.getElementById('pixel-golf-iframe');
+    const modal = document.getElementById('pixel-golf-modal');
+
+    if (iframe && modal)
+    {
+        iframe.src = fullGameUrl;
+        modal.classList.remove('hidden');
+    }
+};
+
+// Schließt das Mini-Game Overlay
+app.logic.closePixelGolfGame = function()
+{
+    const iframe = document.getElementById('pixel-golf-iframe');
+    const modal = document.getElementById('pixel-golf-modal');
+
+    if (iframe && modal)
+    {
+        iframe.src = "about:blank"; // Stoppt Audio und Game-Loop im Hintergrund
+        modal.classList.add('hidden');
+    }
+};
+
+
+
 
 ##### <App_Router.js>:
 ----------------------------------------------------------------------
@@ -2175,6 +2209,11 @@ function doGet(e)
             case 'syncToVault':
                 result = syncToVault();
                 break;
+
+            case 'savePixelGolfHighscore':
+                result = savePixelGolfHighscore(body.spielerName, body.score);
+                break;                
+
             default:
                 throw new Error("Unbekannte Action: " + action);
         }
@@ -3149,13 +3188,79 @@ function cleanupDuplicateScorecards()
     Logger.log(`=== FERTIG! Tabelle von ${data.length} Zeilen auf ${cleanRows.length} Zeilen bereinigt. ===`);
 }
 
+/**
+ * Speichert Highscores aus dem Mini-Game 'Pixel Golf Run'
+ */
+function savePixelGolfHighscore(spielerNameOrData, scoreParam)
+{
+    try
+    {
+        let spielerName = spielerNameOrData;
+        let score = scoreParam;
+        let clientTimestamp = null;
+
+        // Falls die Funktion über den API-Handler ein Objekt übergibt:
+        if (typeof spielerNameOrData === "object" && spielerNameOrData !== null)
+        {
+            spielerName = spielerNameOrData.spielerName;
+            score = spielerNameOrData.score;
+            clientTimestamp = spielerNameOrData.timestamp || null;
+        }
+
+        const cleanName = String(spielerName || "Unbekannt").trim();
+        const cleanScore = parseInt(score) || 0;
+
+        if (cleanScore <= 0)
+        {
+            return { success: false, error: "Ungültiger Score" };
+        }
+
+        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
+        let tHighscores = ssApp.getSheetByName("app_PixelRunHighscores");
+
+        // Falls das Blatt noch nicht existiert, automatisch anlegen
+        if (!tHighscores)
+        {
+            tHighscores = ssApp.insertSheet("app_PixelRunHighscores");
+            tHighscores.appendRow(["id", "spielerName", "score", "datum", "syncedAt"]);
+        }
+
+        // Falls ein Zeitstempel aus dem Game mitkam, nutzen wir diesen für das Datum, sonst Serverzeit
+        const eventDate = clientTimestamp ? new Date(clientTimestamp) : new Date();
+        const now = new Date();
+
+        const datumStr = Utilities.formatDate(eventDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
+        const syncedAtStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+        const newId = "HS-" + Date.now();
+
+        tHighscores.appendRow([
+            newId,
+            cleanName,
+            cleanScore,
+            datumStr,
+            syncedAtStr
+        ]);
+
+        SpreadsheetApp.flush();
+        return { success: true, message: "Highscore gespeichert!" };
+    }
+    catch (err)
+    {
+        Logger.log("[savePixelGolfHighscore Error] " + err.toString());
+        return { success: false, error: err.toString() };
+    }
+}
+
+
+
+
 
 ##### <config.js>:
 ----------------------------------------------------------------------
 // config.js
 const CONFIG = {
-    API_URL: "https://script.google.com/macros/s/AKfycbyG7sesoWaskN4vsg5rfgYzi96Zkpu4CemLm-WKEkDW4Cg6h8jyMOIXlG9uhejkqVI6/exec",
-    appVersion: "1.1.10.33"
+    API_URL: "https://script.google.com/macros/s/AKfycbz-J5f6pzUF5xRN4CEDU1kNX6bbFf-y922-hTZLrjxiJ_QmgY4WYuSg0IabruTuhprh/exec",
+    appVersion: "1.1.10.44"
   };
 
 
@@ -3284,6 +3389,25 @@ const CONFIG = {
             </div>
         </div>
     </div>
+
+    <!-- Pixel Golf Run Mini-Game Modal -->
+    <div id="pixel-golf-modal" class="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs hidden flex flex-col p-2 sm:p-4">
+        <div class="bg-white rounded-2xl w-full max-w-md mx-auto my-auto flex flex-col h-[90vh] shadow-2xl border border-stone-200 overflow-hidden">
+            <!-- Header -->
+            <div class="bg-emerald-800 text-white px-4 py-3 flex justify-between items-center shrink-0">
+                <h3 class="font-bold text-sm tracking-wide flex items-center gap-2">
+                    <i class="fas fa-gamepad text-amber-400"></i> Pixel Golf Run
+                </h3>
+                <button onclick="app.logic.closePixelGolfGame()" class="text-white opacity-80 hover:opacity-100 touch-target text-lg">
+                    <i class="fas fa-times-circle"></i>
+                </button>
+            </div>
+            <!-- Game Frame -->
+            <div class="flex-1 w-full h-full bg-black">
+                <iframe id="pixel-golf-iframe" src="about:blank" class="w-full h-full border-0" allow="autoplay"></iframe>
+            </div>
+        </div>
+    </div>    
 
     <!-- Dynamisches Laden der Module mit explizitem Start-Trigger -->
     <script>
@@ -4211,6 +4335,15 @@ app.views.dashboard = function()
                         <span class="block text-[10px] text-stone-400 -mt-0.5 font-medium">Handicaps & Ranglisten</span>
                     </div>
                 </button>
+
+                <button onclick="app.logic.openPixelGolfGame()" class="p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl text-left hover:border-amber-300 transition shadow-2xs group flex flex-col justify-between min-h-[95px] touch-target">
+                    <i class="fas fa-gamepad text-xl text-amber-600 group-hover:scale-110 transition-transform"></i>
+                    <div>
+                        <span class="block font-bold text-amber-950 text-sm">Pixel Golf Run</span>
+                        <span class="block text-[10px] text-amber-700/80 -mt-0.5 font-semibold">Mini-Game starten ⛳</span>
+                    </div>
+                </button>
+                
             </div>
         </div>
     `;

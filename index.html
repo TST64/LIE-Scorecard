@@ -123,10 +123,10 @@
     </div>
 
     <!-- Pixel Golf Run Mini-Game Modal -->
-    <div id="pixel-golf-modal" class="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs hidden flex flex-col p-2 sm:p-4">
-        <div class="bg-white rounded-2xl w-full max-w-md mx-auto my-auto flex flex-col h-[90vh] shadow-2xl border border-stone-200 overflow-hidden">
+    <div id="pixel-golf-modal" class="fixed inset-0 z-50 bg-stone-900/90 backdrop-blur-xs hidden flex flex-col p-0 sm:p-4">
+        <div class="bg-white w-full h-full sm:max-w-4xl sm:h-[90vh] sm:rounded-2xl mx-auto my-auto flex flex-col shadow-2xl border border-stone-200 overflow-hidden">
             <!-- Header -->
-            <div class="bg-emerald-800 text-white px-4 py-3 flex justify-between items-center shrink-0">
+            <div class="bg-emerald-800 text-white px-4 py-2.5 flex justify-between items-center shrink-0">
                 <h3 class="font-bold text-sm tracking-wide flex items-center gap-2">
                     <i class="fas fa-gamepad text-amber-400"></i> Pixel Golf Run
                 </h3>
@@ -135,7 +135,7 @@
                 </button>
             </div>
             <!-- Game Frame -->
-            <div class="flex-1 w-full h-full bg-black">
+            <div class="flex-1 w-full h-full bg-black overflow-hidden">
                 <iframe id="pixel-golf-iframe" src="about:blank" class="w-full h-full border-0" allow="autoplay"></iframe>
             </div>
         </div>

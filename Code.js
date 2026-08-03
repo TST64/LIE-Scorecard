@@ -1065,10 +1065,22 @@ function cleanupDuplicateScorecards()
 /**
  * Speichert Highscores aus dem Mini-Game 'Pixel Golf Run'
  */
-function savePixelGolfHighscore(spielerName, score)
+function savePixelGolfHighscore(spielerNameOrData, scoreParam)
 {
     try
     {
+        let spielerName = spielerNameOrData;
+        let score = scoreParam;
+        let clientTimestamp = null;
+
+        // Falls die Funktion über den API-Handler ein Objekt übergibt:
+        if (typeof spielerNameOrData === "object" && spielerNameOrData !== null)
+        {
+            spielerName = spielerNameOrData.spielerName;
+            score = spielerNameOrData.score;
+            clientTimestamp = spielerNameOrData.timestamp || null;
+        }
+
         const cleanName = String(spielerName || "Unbekannt").trim();
         const cleanScore = parseInt(score) || 0;
 
@@ -1080,15 +1092,18 @@ function savePixelGolfHighscore(spielerName, score)
         const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
         let tHighscores = ssApp.getSheetByName("app_PixelRunHighscores");
 
-        // Falls das Blatt noch nicht existiert, automatisch mit dem RICHTIGEN Namen anlegen
+        // Falls das Blatt noch nicht existiert, automatisch anlegen
         if (!tHighscores)
         {
             tHighscores = ssApp.insertSheet("app_PixelRunHighscores");
             tHighscores.appendRow(["id", "spielerName", "score", "datum", "syncedAt"]);
         }
 
+        // Falls ein Zeitstempel aus dem Game mitkam, nutzen wir diesen für das Datum, sonst Serverzeit
+        const eventDate = clientTimestamp ? new Date(clientTimestamp) : new Date();
         const now = new Date();
-        const datumStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+        const datumStr = Utilities.formatDate(eventDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
         const syncedAtStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
         const newId = "HS-" + Date.now();
 
