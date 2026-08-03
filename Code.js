@@ -83,6 +83,11 @@ function doGet(e)
             case 'syncToVault':
                 result = syncToVault();
                 break;
+
+            case 'savePixelGolfHighscore':
+                result = savePixelGolfHighscore(body.spielerName, body.score);
+                break;                
+
             default:
                 throw new Error("Unbekannte Action: " + action);
         }
@@ -1056,3 +1061,55 @@ function cleanupDuplicateScorecards()
     SpreadsheetApp.flush();
     Logger.log(`=== FERTIG! Tabelle von ${data.length} Zeilen auf ${cleanRows.length} Zeilen bereinigt. ===`);
 }
+
+/**
+ * Speichert Highscores aus dem Mini-Game 'Pixel Golf Run'
+ */
+function savePixelGolfHighscore(spielerName, score)
+{
+    try
+    {
+        const cleanName = String(spielerName || "Unbekannt").trim();
+        const cleanScore = parseInt(score) || 0;
+
+        if (cleanScore <= 0)
+        {
+            return { success: false, error: "Ungültiger Score" };
+        }
+
+        const ssApp = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssApp"));
+        let tHighscores = ssApp.getSheetByName("app_PixelRunHighscores");
+
+        // Falls das Blatt noch nicht existiert, automatisch anlegen
+        if (!tHighscores)
+        {
+            tHighscores = ssApp.insertSheet("app_Highscores");
+            tHighscores.appendRow(["id", "spielerName", "score", "datum", "syncedAt"]);
+        }
+
+        const now = new Date();
+        const datumStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd");
+        const syncedAtStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+        const newId = "HS-" + Date.now();
+
+        tHighscores.appendRow([
+            newId,
+            cleanName,
+            cleanScore,
+            datumStr,
+            syncedAtStr
+        ]);
+
+        SpreadsheetApp.flush();
+        return { success: true, message: "Highscore gespeichert!" };
+    }
+    catch (err)
+    {
+        Logger.log("[savePixelGolfHighscore Error] " + err.toString());
+        return { success: false, error: err.toString() };
+    }
+}
+
+
+
+

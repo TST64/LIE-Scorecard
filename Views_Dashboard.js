@@ -249,6 +249,15 @@ app.views.dashboard = function()
                         <span class="block text-[10px] text-stone-400 -mt-0.5 font-medium">Handicaps & Ranglisten</span>
                     </div>
                 </button>
+
+                <button onclick="app.logic.openPixelGolfGame()" class="p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl text-left hover:border-amber-300 transition shadow-2xs group flex flex-col justify-between min-h-[95px] touch-target">
+                    <i class="fas fa-gamepad text-xl text-amber-600 group-hover:scale-110 transition-transform"></i>
+                    <div>
+                        <span class="block font-bold text-amber-950 text-sm">Pixel Golf Run</span>
+                        <span class="block text-[10px] text-amber-700/80 -mt-0.5 font-semibold">Mini-Game starten ⛳</span>
+                    </div>
+                </button>
+                
             </div>
         </div>
     `;

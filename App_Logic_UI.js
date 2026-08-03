@@ -183,3 +183,38 @@ app.logic.triggerMasterReset = function()
         }
     );
 };
+
+// Öffnet das Pixel Golf Run Mini-Game in einem Overlay Modal
+app.logic.openPixelGolfGame = function()
+{
+    const currentUser = app.state.currentUser;
+    const spielerName = currentUser ? (currentUser.nickname || currentUser.name) : "Golfer";
+
+    const gameBaseUrl = "https://tst64.github.io/LIE-Scorecard-PixelGolfRun/";
+    const fullGameUrl = `${gameBaseUrl}?player=${encodeURIComponent(spielerName)}`;
+
+    const iframe = document.getElementById('pixel-golf-iframe');
+    const modal = document.getElementById('pixel-golf-modal');
+
+    if (iframe && modal)
+    {
+        iframe.src = fullGameUrl;
+        modal.classList.remove('hidden');
+    }
+};
+
+// Schließt das Mini-Game Overlay
+app.logic.closePixelGolfGame = function()
+{
+    const iframe = document.getElementById('pixel-golf-iframe');
+    const modal = document.getElementById('pixel-golf-modal');
+
+    if (iframe && modal)
+    {
+        iframe.src = "about:blank"; // Stoppt Audio und Game-Loop im Hintergrund
+        modal.classList.add('hidden');
+    }
+};
+
+
+
