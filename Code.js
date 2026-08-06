@@ -86,7 +86,15 @@ function doGet(e)
 
             case 'savePixelGolfHighscore':
                 result = savePixelGolfHighscore(body.spielerName, body.score);
-                break;                
+                break;
+
+            case 'toggleVaultLock':
+                result = toggleVaultLock(body.spielerId, body.status);
+                break;
+
+            case 'getVaultLockStatus':
+                result = getVaultLockStatus();
+                break;
 
             default:
                 throw new Error("Unbekannte Action: " + action);
@@ -1125,4 +1133,62 @@ function savePixelGolfHighscore(spielerNameOrData, scoreParam)
     }
 }
 
+/**
+ * Liest den Freischalt-Status des Vaults aus den ScriptProperties
+ */
+function getVaultLockStatus()
+{
+    try
+    {
+        const props = PropertiesService.getScriptProperties();
+        const status = props.getProperty("vaultUnlocked");
+        // Standardmäßig gesperrt (false), außer es steht explizit "true" drin
+        return { success: true, isUnlocked: status === "true" };
+    }
+    catch (err)
+    {
+        return { success: false, error: err.toString() };
+    }
+}
 
+/**
+ * Schaltet den Vault-Zugriff frei oder sperrt ihn (Nur für Admins)
+ */
+function toggleVaultLock(spielerId, newStatus)
+{
+    try
+    {
+        const ssAdmin = SpreadsheetApp.openByUrl(getSpreadsheetUrl("ssAdmin"));
+        const tSpieler = ssAdmin.getSheetByName("adm_Spieler");
+        const data = tSpieler.getDataRange().getValues();
+
+        // Admin-Rechte prüfen
+        let isUserAdmin = false;
+        for (let i = 1; i < data.length; i++)
+        {
+            if (String(data[i][0]).trim() === String(spielerId).trim())
+            {
+                if (String(data[i][7]).trim() === "Admin")
+                {
+                    isUserAdmin = true;
+                }
+                break;
+            }
+        }
+
+        if (!isUserAdmin)
+        {
+            return { success: false, error: "Berechtigung verweigert! Nur Admins dürfen den Vault freischalten." };
+        }
+
+        const props = PropertiesService.getScriptProperties();
+        props.setProperty("vaultUnlocked", newStatus ? "true" : "false");
+        
+        SpreadsheetApp.flush();
+        return { success: true, isUnlocked: newStatus };
+    }
+    catch (err)
+    {
+        return { success: false, error: err.toString() };
+    }
+}
