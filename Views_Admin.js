@@ -89,3 +89,49 @@ app.logic.adminDeletePlayerFromSelect = function()
     }
     app.logic.deletePlayer(select.value);
 };
+
+// In Views_Admin.js unter der Datenbank & Vault Sektion einfügen:
+
+// Zustand beim Laden abfragen und UI rendern
+app.logic.renderVaultToggleCard = function()
+{
+    app.logic.apiRequest('getVaultLockStatus')
+        .then(function(res)
+        {
+            const container = document.getElementById('vault-toggle-container');
+            if (!container) return;
+
+            const isUnlocked = res && res.isUnlocked;
+            
+            container.innerHTML = `
+                <div class="p-3 ${isUnlocked ? 'bg-emerald-50 border-emerald-200' : 'bg-stone-50 border-stone-200'} border rounded-xl flex items-center justify-between">
+                    <div>
+                        <h5 class="text-xs font-bold text-stone-800">Stats-Freigabe für Homepage</h5>
+                        <p class="text-[10px] text-stone-400">${isUnlocked ? '🟢 Freigeschaltet (Siegerehrung aktiv)' : '🔴 Gesperrt (Spickschutz aktiv)'}</p>
+                    </div>
+                    <button onclick="app.logic.toggleVaultAccess(${!isUnlocked})" class="px-3 py-1.5 ${isUnlocked ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white text-xs font-bold rounded-lg shadow-3xs transition touch-target">
+                        ${isUnlocked ? '<i class="fas fa-lock mr-1"></i> Sperren' : '<i class="fas fa-lock-open mr-1"></i> Freischalten'}
+                    </button>
+                </div>
+            `;
+        });
+};
+
+app.logic.toggleVaultAccess = function(targetStatus)
+{
+    if (!app.state.currentUser) return;
+
+    app.logic.apiRequest('toggleVaultLock', { spielerId: app.state.currentUser.id, status: targetStatus })
+        .then(function(res)
+        {
+            if (res && res.success)
+            {
+                app.logic.showToast(targetStatus ? "Vault für Siegerehrung FREIGESCHALTET!" : "Vault wieder GESPERRT!", "success");
+                app.logic.renderVaultToggleCard();
+            }
+            else
+            {
+                app.logic.showToast("Fehler: " + (res ? res.error : "Unbekannt"), "error");
+            }
+        });
+};
