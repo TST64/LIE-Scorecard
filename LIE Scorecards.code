@@ -3973,6 +3973,12 @@ app.views.admin = function()
         return `<option value="${s.id}">${s.name} (@${s.nickname})</option>`;
     }).join('');
 
+    // Startet das automatische Rendern der Vault-Freigabekachel nach dem View-Aufbau
+    setTimeout(function()
+    {
+        app.logic.renderVaultToggleCard();
+    }, 50);
+
     return `
         <div class="space-y-5 pb-12">
             <!-- Header -->
@@ -3986,12 +3992,20 @@ app.views.admin = function()
 
             <div class="bg-white border border-stone-200 rounded-2xl p-4 shadow-2xs space-y-5">
                 
-                <!-- 1. DATENBANK & ARCHIV -->
-                <div class="space-y-2">
+                <!-- 1. DATENBANK & VAULT -->
+                <div class="space-y-3">
                     <h4 class="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
                         <i class="fas fa-database text-emerald-600"></i> Datenbank & Vault
                     </h4>
-                    <p class="text-xs text-stone-500 leading-relaxed">
+                    
+                    <!-- NEU: Schalter für die Siegerehrung / Stats-Freigabe auf der Homepage -->
+                    <div id="vault-toggle-container">
+                        <div class="p-3 bg-stone-50 border border-stone-200 rounded-xl flex items-center justify-between animate-pulse">
+                            <span class="text-xs text-stone-400 font-semibold"><i class="fas fa-spinner fa-spin mr-1"></i> Lade Vault-Sperrstatus...</span>
+                        </div>
+                    </div>
+
+                    <p class="text-xs text-stone-500 leading-relaxed pt-1">
                         Sichert den aktuellen Stand aller Tabellen serialisiert im Vault-Archivblatt.
                     </p>
                     <button onclick="app.logic.triggerVaultSync()" id="admin-vault-sync-btn" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3 rounded-xl transition text-xs shadow-xs flex items-center justify-center gap-2 touch-target">
@@ -4050,9 +4064,7 @@ app.logic.adminDeletePlayerFromSelect = function()
     app.logic.deletePlayer(select.value);
 };
 
-// In Views_Admin.js unter der Datenbank & Vault Sektion einfügen:
-
-// Zustand beim Laden abfragen und UI rendern
+// Rendert die Kachel für den Vault-Status
 app.logic.renderVaultToggleCard = function()
 {
     app.logic.apiRequest('getVaultLockStatus')
@@ -4064,10 +4076,10 @@ app.logic.renderVaultToggleCard = function()
             const isUnlocked = res && res.isUnlocked;
             
             container.innerHTML = `
-                <div class="p-3 ${isUnlocked ? 'bg-emerald-50 border-emerald-200' : 'bg-stone-50 border-stone-200'} border rounded-xl flex items-center justify-between">
+                <div class="p-3 ${isUnlocked ? 'bg-emerald-50 border-emerald-200' : 'bg-stone-50 border-stone-200'} border rounded-xl flex items-center justify-between transition-all">
                     <div>
                         <h5 class="text-xs font-bold text-stone-800">Stats-Freigabe für Homepage</h5>
-                        <p class="text-[10px] text-stone-400">${isUnlocked ? '🟢 Freigeschaltet (Siegerehrung aktiv)' : '🔴 Gesperrt (Spickschutz aktiv)'}</p>
+                        <p class="text-[10px] text-stone-500 font-medium">${isUnlocked ? '🟢 Freigeschaltet (Siegerehrung aktiv)' : '🔴 Gesperrt (Spickschutz aktiv)'}</p>
                     </div>
                     <button onclick="app.logic.toggleVaultAccess(${!isUnlocked})" class="px-3 py-1.5 ${isUnlocked ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white text-xs font-bold rounded-lg shadow-3xs transition touch-target">
                         ${isUnlocked ? '<i class="fas fa-lock mr-1"></i> Sperren' : '<i class="fas fa-lock-open mr-1"></i> Freischalten'}
@@ -4077,6 +4089,7 @@ app.logic.renderVaultToggleCard = function()
         });
 };
 
+// Schaltet den Vault-Zugriff um
 app.logic.toggleVaultAccess = function(targetStatus)
 {
     if (!app.state.currentUser) return;
