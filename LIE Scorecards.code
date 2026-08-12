@@ -1,3 +1,47 @@
+======================================================================
+PROJEKT-DUMP: LIE Scorecards
+======================================================================
+Diese Datei enthält den zusammengesetzten Quellcode des Projekts.
+Inhalt:
+1. Eine Übersicht der Projektstruktur.
+2. Die einzelnen Dateiinhalte, jeweils eingeleitet durch Pfad-Tags
+   der Form: ##### <relativer/pfad/zur/datei.ext>:
+======================================================================
+
+PROJEKTSTRUKTUR:
+/LIE Scorecards
+├── img/
+├── App_Core.js
+├── App_Logic_Bridge.js
+├── App_Logic_Scores.js
+├── App_Logic_Spieler.js
+├── App_Logic_Spieltage.js
+├── App_Logic_UI.js
+├── App_Router.js
+├── App_Start.js
+├── App_View_Help.js
+├── Code.js
+├── config.js
+├── index.html
+├── Style.css
+├── sw.js
+├── UnitTests.js
+├── Utils.js
+├── Vault.js
+├── Views_Admin.js
+├── Views_AdminGruppe.js
+├── Views_Dashboard.js
+├── Views_Leaderboard.js
+├── Views_Login.js
+├── Views_ScoreEingabe.js
+├── Views_SpielerEdit.js
+├── Views_Spieltage.js
+└── Views_SpieltagNeu.js
+
+======================================================================
+
+DATEIINHALTE:
+
 ##### <App_Core.js>:
 ----------------------------------------------------------------------
 
@@ -3337,8 +3381,8 @@ function toggleVaultLock(spielerId, newStatus)
 ----------------------------------------------------------------------
 // config.js
 const CONFIG = {
-    API_URL: "https://script.google.com/macros/s/AKfycbzSPk8_NTH3Dashc6D6JFr5iEAB3mA0LxA4RuqrbJ9HFewmKlDCd8crNHman-SXWutAgw/exec",
-    appVersion: "1.1.10.50"
+    API_URL: "https://script.google.com/macros/s/AKfycbxQnYsVMwt_gi87RW868mIFXbaiC8ykbP4jVhYE2l6w3ZVgeSzMwYKq913pOOodSNYiLA/exec",
+    appVersion: "1.1.10.51"
   };
 
 
